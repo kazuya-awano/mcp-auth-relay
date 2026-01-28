@@ -55,6 +55,7 @@ class MCPToolCall(Tool):
             timeout=credentials.get("timeout", 50),
         )
         try:
+            client.initialize()
             content = client.call_tool(tool_name, arguments)
             yield self.create_json_message({"content": content})
         except McpAuthError:
