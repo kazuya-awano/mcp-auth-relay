@@ -1,0 +1,44 @@
+version: 0.0.1
+type: plugin
+author: kazuya-awano
+name: mcp-auth-relay
+tags:
+  - utilities
+label:
+  en_US: mcp-auth-relay
+  ja_JP: mcp-auth-relay
+  zh_Hans: mcp-auth-relay
+  pt_BR: mcp-auth-relay
+description:
+  en_US: mcp-auth-relay desc
+  ja_JP: mcp-auth-relay desc
+  zh_Hans: mcp-auth-relay desc
+  pt_BR: mcp-auth-relay desc
+icon: icon.svg
+icon_dark: icon-dark.svg
+resource:
+  memory: 268435456
+  permission:
+    endpoint:
+      enabled: true
+    storage:
+      enabled: true
+      size: 1048576
+plugins:
+  endpoints:
+    - group/mcp-auth-relay.yaml
+  tools:
+    - provider/mcp-auth-relay.yaml
+meta:
+  version: 0.0.1
+  arch:
+    - amd64
+    - arm64
+  runner:
+    language: python
+    version: "3.12"
+    entrypoint: main
+  minimum_dify_version: null
+created_at: 2026-01-27T12:08:30.45282134+09:00
+privacy: PRIVACY.md
+verified: false

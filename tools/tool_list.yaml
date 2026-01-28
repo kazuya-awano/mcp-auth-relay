@@ -1,0 +1,19 @@
+identity:
+  name: "list_mcp_tool"
+  author: "kazuya-awano"
+  label:
+    en_US: "List MCP Tool"
+    zh_Hans: "List MCP Tool"
+    pt_BR: "List MCP Tool"
+    ja_JP: "List MCP Tool"
+description:
+  human:
+    en_US: "List tools available on the configured MCP server."
+    zh_Hans: "List tools available on the configured MCP server."
+    pt_BR: "List tools available on the configured MCP server."
+    ja_JP: "List tools available on the configured MCP server."
+  llm: "List tools available on the configured MCP server."
+parameters: []
+extra:
+  python:
+    source: tools/tool_list.py

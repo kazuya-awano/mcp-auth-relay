@@ -1,0 +1,35 @@
+identity:
+  author: "kazuya-awano"
+  name: "mcp-auth-relay"
+  label:
+    en_US: "MCP Auth Relay"
+  description:
+    en_US: "Relay MCP requests with per-user OAuth"
+  icon: "icon.svg"
+  tags:
+    - "utilities"
+credentials_for_provider:
+  mcp_url:
+    type: text-input
+    required: true
+    label:
+      en_US: "MCP Server URL"
+  redirect_uri:
+    type: text-input
+    required: true
+    label:
+      en_US: "OAuth Redirect URI"
+  client_id:
+    type: text-input
+    label:
+      en_US: "Client ID"
+  scope:
+    type: text-input
+    label:
+      en_US: "OAuth Scope"
+tools:
+  - tools/tool_list.yaml
+  - tools/tool_call.yaml
+extra:
+  python:
+    source: provider/mcp-auth-relay.py

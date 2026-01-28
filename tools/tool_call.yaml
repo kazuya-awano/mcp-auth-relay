@@ -1,0 +1,37 @@
+identity:
+  name: "call_mcp_tool"
+  author: "kazuya-awano"
+  label:
+    en_US: "Call MCP Tool"
+    zh_Hans: "Call MCP Tool"
+    pt_BR: "Call MCP Tool"
+    ja_JP: "Call MCP Tool"
+description:
+  human:
+    en_US: "Call a tool on the configured MCP server."
+    zh_Hans: "Call a tool on the configured MCP server."
+    pt_BR: "Call a tool on the configured MCP server."
+    ja_JP: "Call a tool on the configured MCP server."
+  llm: "Call a tool on the configured MCP server."
+parameters:
+  - name: tool_name
+    type: string
+    required: true
+    label:
+      en_US: Tool Name
+    human_description:
+      en_US: Name of the tool to execute.
+    llm_description: Name of the MCP tool to execute.
+    form: llm
+  - name: arguments
+    type: string
+    required: false
+    label:
+      en_US: Arguments
+    human_description:
+      en_US: Tool arguments as a JSON string.
+    llm_description: MCP tool arguments as a JSON string.
+    form: llm
+extra:
+  python:
+    source: tools/tool_call.py

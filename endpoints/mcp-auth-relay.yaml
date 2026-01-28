@@ -1,0 +1,5 @@
+path: "/uwu/mcp-auth-relay/uwu"
+method: "GET"
+extra:
+  python:
+    source: "endpoints/mcp-auth-relay.py"
