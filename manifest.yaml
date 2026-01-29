@@ -19,8 +19,6 @@ icon_dark: icon-dark.svg
 resource:
   memory: 268435456
   permission:
-    endpoint:
-      enabled: true
     storage:
       enabled: true
       size: 1048576
