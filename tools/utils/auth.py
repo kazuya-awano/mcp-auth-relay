@@ -315,6 +315,7 @@ def create_state(runtime: Any) -> str | None:
     payload = {
         "app_id": _get_app_id(runtime),
         "user_id": _get_user_key(runtime),
+        "created_at": int(time.time()),
     }
     storage.set(_state_key(state), json.dumps(payload).encode("utf-8"))
     return state
@@ -336,6 +337,17 @@ def resolve_state(storage: Any, state: str) -> dict[str, Any] | None:
             return {"user_id": raw.decode("utf-8")}
         except Exception:
             return None
+
+
+def is_state_expired(state_payload: Mapping[str, Any], max_age_seconds: int = 600) -> bool:
+    created_at = state_payload.get("created_at")
+    if not created_at:
+        return True
+    try:
+        created_at_int = int(created_at)
+    except Exception:
+        return True
+    return (int(time.time()) - created_at_int) > max_age_seconds
 
 
 def build_login_url(credentials: Mapping[str, Any], state: str | None = None) -> str | None:

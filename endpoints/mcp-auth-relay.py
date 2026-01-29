@@ -9,6 +9,7 @@ from dify_plugin import Endpoint
 from tools.utils.auth import (
     delete_state,
     ensure_oauth_config_from_storage,
+    is_state_expired,
     normalize_token_payload,
     resolve_state,
 )
@@ -33,6 +34,9 @@ class McpAuthRelayEndpoint(Endpoint):
         state_payload = resolve_state(storage, state)
         if not state_payload:
             return Response("Invalid state", status=400, content_type="text/plain")
+        if is_state_expired(state_payload):
+            delete_state(storage, state)
+            return Response("State expired", status=400, content_type="text/plain")
 
         user_key = state_payload.get("user_id")
         app_id = state_payload.get("app_id")
