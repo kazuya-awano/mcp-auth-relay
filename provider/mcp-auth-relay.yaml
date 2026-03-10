@@ -4,7 +4,7 @@ identity:
   label:
     en_US: "MCP Auth Relay"
   description:
-    en_US: "Relay MCP requests with per-user OAuth"
+    en_US: "Relay remote MCP tools with per-user OAuth. Use List MCP Tools to inspect remote tools and Call MCP Tool to execute them."
   icon: "icon.svg"
   tags:
     - "utilities"

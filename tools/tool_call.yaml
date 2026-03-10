@@ -8,11 +8,11 @@ identity:
     ja_JP: "Call MCP Tool"
 description:
   human:
-    en_US: "Call a tool on the configured MCP server."
-    zh_Hans: "Call a tool on the configured MCP server."
-    pt_BR: "Call a tool on the configured MCP server."
-    ja_JP: "Call a tool on the configured MCP server."
-  llm: "Call a tool on the configured MCP server."
+    en_US: "Execute one MCP tool on the configured MCP server."
+    zh_Hans: "Execute one MCP tool on the configured MCP server."
+    pt_BR: "Execute one MCP tool on the configured MCP server."
+    ja_JP: "Execute one MCP tool on the configured MCP server."
+  llm: "Execute one MCP tool on the configured MCP server. If you do not know the MCP tool name yet, call list_mcp_tool first. Never invoke returned MCP tool names directly as Dify tools; always use this tool with tool_name and a JSON string in arguments."
 parameters:
   - name: tool_name
     type: string
@@ -20,8 +20,8 @@ parameters:
     label:
       en_US: Tool Name
     human_description:
-      en_US: Name of the tool to execute.
-    llm_description: Name of the MCP tool to execute.
+      en_US: "Exact MCP tool name returned by List MCP Tool."
+    llm_description: "Exact MCP tool name returned by list_mcp_tool. This is the remote MCP tool name, not a Dify tool name."
     form: llm
   - name: arguments
     type: string
@@ -29,8 +29,8 @@ parameters:
     label:
       en_US: Arguments
     human_description:
-      en_US: Tool arguments as a JSON string.
-    llm_description: MCP tool arguments as a JSON string.
+      en_US: "Tool arguments as a JSON string. Use {} when the MCP tool takes no arguments."
+    llm_description: 'JSON string for the selected MCP tool arguments, matching its inputSchema. Example: {"query": "test"}. Do not pass plain text.'
     form: llm
 extra:
   python:
