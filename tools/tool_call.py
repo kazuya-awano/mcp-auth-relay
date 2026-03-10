@@ -22,7 +22,9 @@ class MCPToolCall(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         tool_name = (tool_parameters.get("tool_name") or "").strip()
         if not tool_name:
-            yield self.create_text_message("Please fill in the tool_name.")
+            yield self.create_text_message(
+                "Please fill in tool_name with the exact MCP tool name returned by list_mcp_tool."
+            )
             return
 
         arguments_raw = tool_parameters.get("arguments")
@@ -32,12 +34,16 @@ class MCPToolCall(Tool):
             try:
                 arguments = json.loads(arguments_raw)
             except json.JSONDecodeError as exc:
-                yield self.create_text_message(f"Arguments must be a valid JSON string: {exc}")
+                yield self.create_text_message(
+                    f"Arguments must be a valid JSON object string for call_mcp_tool: {exc}"
+                )
                 return
         elif isinstance(arguments_raw, dict):
             arguments = arguments_raw
         else:
-            yield self.create_text_message("Arguments must be a JSON string or object.")
+            yield self.create_text_message(
+                "Arguments must be a JSON string or object matching the MCP tool input schema."
+            )
             return
 
         credentials = self.runtime.credentials or {}
@@ -47,7 +53,7 @@ class MCPToolCall(Tool):
             return
         oauth_cfg = ensure_oauth_config(self, credentials)
 
-        access_token = get_access_token(self)
+        access_token = get_access_token(self, mcp_url)
         headers = build_auth_headers(access_token)
         client = create_client(
             mcp_url=mcp_url,
@@ -59,14 +65,14 @@ class MCPToolCall(Tool):
             content = client.call_tool(tool_name, arguments)
             yield self.create_json_message({"content": content})
         except McpAuthError:
-            state = create_state(self)
+            state = create_state(self, mcp_url)
             login_url = build_login_url(oauth_cfg or credentials, state)
             if login_url:
                 yield self.create_json_message(
                     {
                         "status": "need_auth",
                         "login_url": login_url,
-                        "message": "Authentication required. Please open the login_url in your browser to complete authentication.",
+                        "message": "Authentication required. Return the login_url to the user, ask them to finish sign-in in the browser, then retry the same call_mcp_tool request.",
                     }
                 )
             else:

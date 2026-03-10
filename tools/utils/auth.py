@@ -1,7 +1,9 @@
+import hashlib
 import json
 import secrets
 import time
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import httpx
@@ -24,8 +26,21 @@ def _get_storage(obj: Any):
     return None
 
 
-def _token_key(user_id: str) -> str:
-    return f"token:{user_id}"
+def normalize_mcp_url(mcp_url: str | None) -> str:
+    if not mcp_url:
+        return ""
+    return mcp_url.strip().rstrip("/")
+
+
+def _resource_key(mcp_url: str) -> str:
+    normalized = normalize_mcp_url(mcp_url)
+    if not normalized:
+        return "default_resource"
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:24]
+
+
+def build_token_storage_key(user_id: str, mcp_url: str) -> str:
+    return f"token:{user_id}:{_resource_key(mcp_url)}"
 
 
 def _oauth_cfg_key(app_id: str) -> str:
@@ -68,14 +83,27 @@ def _get_user_key(obj: Any) -> str:
     return user_id
 
 
+def _get_mcp_url(obj: Any) -> str:
+    credentials = getattr(obj, "credentials", None)
+    if isinstance(credentials, Mapping):
+        mcp_url = normalize_mcp_url(credentials.get("mcp_url"))
+        if mcp_url:
+            return mcp_url
+    runtime = getattr(obj, "runtime", None)
+    if runtime:
+        return _get_mcp_url(runtime)
+    return ""
 
 
-def get_access_token(runtime: Any) -> str | None:
+def get_access_token(runtime: Any, mcp_url: str | None = None) -> str | None:
     storage = _get_storage(runtime)
     if not storage:
         return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url) or _get_mcp_url(runtime)
+    if not resolved_mcp_url:
+        return None
     try:
-        raw = storage.get(_token_key(_get_user_key(runtime)))
+        raw = storage.get(build_token_storage_key(_get_user_key(runtime), resolved_mcp_url))
     except Exception:
         return None
     if not raw:
@@ -93,11 +121,17 @@ def get_access_token(runtime: Any) -> str | None:
     return None
 
 
-def set_access_token(runtime: Any, access_token: str) -> None:
+def set_access_token(runtime: Any, access_token: str, mcp_url: str | None = None) -> None:
     storage = _get_storage(runtime)
     if not storage:
         return
-    storage.set(_token_key(_get_user_key(runtime)), access_token.encode("utf-8"))
+    resolved_mcp_url = normalize_mcp_url(mcp_url) or _get_mcp_url(runtime)
+    if not resolved_mcp_url:
+        return
+    storage.set(
+        build_token_storage_key(_get_user_key(runtime), resolved_mcp_url),
+        access_token.encode("utf-8"),
+    )
 
 
 def normalize_token_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -126,7 +160,7 @@ def save_oauth_config(runtime: Any, credentials: Mapping[str, Any]) -> None:
         return
     app_id = (getattr(runtime, "app_id", None) or "default_app").strip()
     payload = {
-        "mcp_url": credentials.get("mcp_url"),
+        "mcp_url": normalize_mcp_url(credentials.get("mcp_url")),
         "authorization_url": credentials.get("authorization_url")
         or credentials.get("auth_url"),
         "token_url": credentials.get("token_url"),
@@ -243,7 +277,7 @@ def ensure_oauth_config(runtime: Any, credentials: Mapping[str, Any]) -> Mapping
     storage = _get_storage(runtime)
     app_id = (getattr(runtime, "app_id", None) or "default_app").strip()
     config: dict[str, Any] = {
-        "mcp_url": credentials.get("mcp_url"),
+        "mcp_url": normalize_mcp_url(credentials.get("mcp_url")),
         "authorization_url": credentials.get("authorization_url")
         or credentials.get("auth_url"),
         "token_url": credentials.get("token_url"),
@@ -307,14 +341,18 @@ def build_auth_headers(access_token: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def create_state(runtime: Any) -> str | None:
+def create_state(runtime: Any, mcp_url: str | None = None) -> str | None:
     storage = _get_storage(runtime)
     if not storage:
+        return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url) or _get_mcp_url(runtime)
+    if not resolved_mcp_url:
         return None
     state = secrets.token_urlsafe(16)
     payload = {
         "app_id": _get_app_id(runtime),
         "user_id": _get_user_key(runtime),
+        "mcp_url": resolved_mcp_url,
         "created_at": int(time.time()),
     }
     storage.set(_state_key(state), json.dumps(payload).encode("utf-8"))

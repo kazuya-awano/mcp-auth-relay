@@ -7,9 +7,11 @@ from werkzeug import Request, Response
 
 from dify_plugin import Endpoint
 from tools.utils.auth import (
+    build_token_storage_key,
     delete_state,
     ensure_oauth_config_from_storage,
     is_state_expired,
+    normalize_mcp_url,
     normalize_token_payload,
     resolve_state,
 )
@@ -40,11 +42,22 @@ class McpAuthRelayEndpoint(Endpoint):
 
         user_key = state_payload.get("user_id")
         app_id = state_payload.get("app_id")
+        state_mcp_url = normalize_mcp_url(state_payload.get("mcp_url"))
         if not user_key:
             return Response("Invalid user key", status=400, content_type="text/plain")
         if not app_id:
             app_id = "default_app"
+        if not state_mcp_url:
+            return Response("Invalid MCP URL in state", status=400, content_type="text/plain")
         oauth_cfg = ensure_oauth_config_from_storage(storage, app_id) or {}
+        cfg_mcp_url = normalize_mcp_url(oauth_cfg.get("mcp_url"))
+        if cfg_mcp_url and cfg_mcp_url != state_mcp_url:
+            delete_state(storage, state)
+            return Response(
+                "OAuth configuration changed. Please start authentication again.",
+                status=400,
+                content_type="text/plain",
+            )
         token_url = (oauth_cfg.get("token_url") or "").strip()
         client_id = (oauth_cfg.get("client_id") or "").strip()
         client_secret = (oauth_cfg.get("client_secret") or "").strip()
@@ -86,7 +99,10 @@ class McpAuthRelayEndpoint(Endpoint):
             token_payload = {"access_token": response.text}
 
         token_payload = normalize_token_payload(token_payload)
-        storage.set(f"token:{user_key}", json.dumps(token_payload).encode("utf-8"))
+        storage.set(
+            build_token_storage_key(user_key, state_mcp_url),
+            json.dumps(token_payload).encode("utf-8"),
+        )
         delete_state(storage, state)
 
         html = """

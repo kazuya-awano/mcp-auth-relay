@@ -26,7 +26,7 @@ class MCPToolList(Tool):
             return
         oauth_cfg = ensure_oauth_config(self, credentials)
 
-        access_token = get_access_token(self)
+        access_token = get_access_token(self, mcp_url)
         headers = build_auth_headers(access_token)
         client = create_client(
             mcp_url=mcp_url,
@@ -36,16 +36,21 @@ class MCPToolList(Tool):
         try:
             client.initialize()
             tools = client.list_tools()
-            yield self.create_json_message({"tools": tools})
+            yield self.create_json_message(
+                {
+                    "usage": "Use the Dify tool call_mcp_tool to execute one of the MCP tools below. Set tool_name to tools[].name exactly, and pass arguments as a JSON string matching tools[].inputSchema. Do not call the MCP tool names directly as Dify tools.",
+                    "tools": tools,
+                }
+            )
         except McpAuthError:
-            state = create_state(self)
+            state = create_state(self, mcp_url)
             login_url = build_login_url(oauth_cfg or credentials, state)
             if login_url:
                 yield self.create_json_message(
                     {
                         "status": "need_auth",
                         "login_url": login_url,
-                        "message": "Authentication required. Please open the login_url in your browser to complete authentication.",
+                        "message": "Authentication required. Return the login_url to the user, ask them to finish sign-in in the browser, then retry list_mcp_tool.",
                     }
                 )
             else:
