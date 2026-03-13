@@ -1,5 +1,5 @@
 identity:
-  name: "call_mcp_tool"
+  name: "mcp_tool_call"
   author: "kazuya-awano"
   label:
     en_US: "Call MCP Tool"
@@ -12,25 +12,25 @@ description:
     zh_Hans: "Execute one MCP tool on the configured MCP server."
     pt_BR: "Execute one MCP tool on the configured MCP server."
     ja_JP: "Execute one MCP tool on the configured MCP server."
-  llm: "Execute one MCP tool on the configured MCP server. If you do not know the MCP tool name yet, call list_mcp_tool first. Never invoke returned MCP tool names directly as Dify tools; always use this tool with tool_name and a JSON string in arguments."
+  llm: "Execute one MCP tool by tool_ref. tool_ref format is server_id::tool_name and should come from mcp_tool_list."
 parameters:
-  - name: tool_name
+  - name: tool_ref
     type: string
     required: true
     label:
-      en_US: Tool Name
+      en_US: Tool Ref
     human_description:
-      en_US: "Exact MCP tool name returned by List MCP Tool."
-    llm_description: "Exact MCP tool name returned by list_mcp_tool. This is the remote MCP tool name, not a Dify tool name."
+      en_US: "MCP tool reference in server_id::tool_name format, returned by mcp_tool_list."
+    llm_description: "MCP tool reference in server_id::tool_name format returned by mcp_tool_list."
     form: llm
-  - name: arguments
+  - name: input
     type: string
-    required: false
+    required: true
     label:
-      en_US: Arguments
+      en_US: Input JSON
     human_description:
-      en_US: "Tool arguments as a JSON string. Use {} when the MCP tool takes no arguments."
-    llm_description: 'JSON string for the selected MCP tool arguments, matching its inputSchema. Example: {"query": "test"}. Do not pass plain text.'
+      en_US: "Arguments as a JSON string. Use {} when the tool takes no arguments."
+    llm_description: 'JSON string for MCP tool arguments, matching the tool schema. Example: {"query":"test"}'
     form: llm
 extra:
   python:

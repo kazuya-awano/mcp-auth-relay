@@ -1,4 +1,4 @@
-path: "/uwu/mcp-auth-relay/uwu"
+path: "/callback"
 method: "GET"
 extra:
   python:

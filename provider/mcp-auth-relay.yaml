@@ -4,29 +4,28 @@ identity:
   label:
     en_US: "MCP Auth Relay"
   description:
-    en_US: "Relay remote MCP tools with per-user OAuth. Use List MCP Tools to inspect remote tools and Call MCP Tool to execute them."
+    en_US: "Relay remote MCP tools with per-user OAuth. Use mcp_tool_list to inspect tools and mcp_tool_call to execute tools by tool_ref."
   icon: "icon.svg"
   tags:
     - "utilities"
 credentials_for_provider:
-  mcp_url:
+  mcp_servers_json:
     type: text-input
     required: true
     label:
-      en_US: "MCP Server URL"
-  redirect_uri:
-    type: text-input
-    required: true
-    label:
-      en_US: "OAuth Redirect URI"
-  client_id:
-    type: text-input
-    label:
-      en_US: "Client ID"
-  scope:
+      en_US: "MCP Servers Config JSON"
+    placeholder:
+      en_US: '{"servers":[{"server_id":"notion","mcp_url":"https://mcp.notion.com/mcp","redirect_uri":"https://<your-host>/e/<hook-id>/callback","client_id":"<optional>","client_secret":"<optional>","scope":"<optional>"}]}'
+    help:
+      en_US: "Define MCP servers in JSON. authorization_url/token_url are optional and can be discovered from MCP metadata."
+  tool_list_cache_ttl_seconds:
     type: text-input
     label:
-      en_US: "OAuth Scope"
+      en_US: "Tool List Cache TTL Seconds"
+    placeholder:
+      en_US: "300"
+    help:
+      en_US: "Optional cache TTL for tools/list per MCP server. 0 or negative disables cache."
 tools:
   - tools/tool_list.yaml
   - tools/tool_call.yaml

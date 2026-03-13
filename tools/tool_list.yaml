@@ -1,5 +1,5 @@
 identity:
-  name: "list_mcp_tool"
+  name: "mcp_tool_list"
   author: "kazuya-awano"
   label:
     en_US: "List MCP Tools"
@@ -12,8 +12,16 @@ description:
     zh_Hans: "List tools available on the configured MCP server."
     pt_BR: "List tools available on the configured MCP server."
     ja_JP: "List tools available on the configured MCP server."
-  llm: "List the MCP tools available on the configured MCP server. Use this first to discover the remote MCP tool names and input schemas. After that, use call_mcp_tool to execute one of them. Do not treat the listed MCP tool names as Dify tools."
-parameters: []
+  llm: "List MCP tools from configured servers. It returns tool_ref values in server_id::tool_name format. Always use tool_ref with mcp_tool_call; do not call MCP tool names directly as Dify tools."
+parameters:
+  - name: server_id
+    type: string
+    label:
+      en_US: Server ID
+    human_description:
+      en_US: "Optional server identifier to list tools only from one server."
+    llm_description: "Optional server identifier to narrow tool listing."
+    form: llm
 extra:
   python:
     source: tools/tool_list.py

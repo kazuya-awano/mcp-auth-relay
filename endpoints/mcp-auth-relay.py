@@ -1,19 +1,17 @@
-import json
 from urllib.parse import parse_qs
-from typing import Mapping
+from typing import Any, Mapping
 
 import httpx
 from werkzeug import Request, Response
 
 from dify_plugin import Endpoint
 from tools.utils.auth import (
-    build_token_storage_key,
     delete_state,
-    ensure_oauth_config_from_storage,
     is_state_expired,
     normalize_mcp_url,
     normalize_token_payload,
     resolve_state,
+    set_token_payload,
 )
 
 
@@ -41,29 +39,24 @@ class McpAuthRelayEndpoint(Endpoint):
             return Response("State expired", status=400, content_type="text/plain")
 
         user_key = state_payload.get("user_id")
-        app_id = state_payload.get("app_id")
         state_mcp_url = normalize_mcp_url(state_payload.get("mcp_url"))
         if not user_key:
             return Response("Invalid user key", status=400, content_type="text/plain")
-        if not app_id:
-            app_id = "default_app"
         if not state_mcp_url:
             return Response("Invalid MCP URL in state", status=400, content_type="text/plain")
-        oauth_cfg = ensure_oauth_config_from_storage(storage, app_id) or {}
-        cfg_mcp_url = normalize_mcp_url(oauth_cfg.get("mcp_url"))
-        if cfg_mcp_url and cfg_mcp_url != state_mcp_url:
-            delete_state(storage, state)
-            return Response(
-                "OAuth configuration changed. Please start authentication again.",
-                status=400,
-                content_type="text/plain",
-            )
+
+        oauth_cfg = state_payload.get("oauth") or {}
         token_url = (oauth_cfg.get("token_url") or "").strip()
         client_id = (oauth_cfg.get("client_id") or "").strip()
         client_secret = (oauth_cfg.get("client_secret") or "").strip()
+        token_endpoint_auth_method = (oauth_cfg.get("token_endpoint_auth_method") or "").strip()
         redirect_uri = (oauth_cfg.get("redirect_uri") or "").strip()
         if not token_url or not client_id or not redirect_uri:
-            return Response("Missing OAuth settings", status=500, content_type="text/plain")
+            return Response(
+                "Missing OAuth settings in state. Please re-run mcp_tool_list or mcp_tool_call to get a fresh login_url.",
+                status=400,
+                content_type="text/plain",
+            )
 
         data = {
             "grant_type": "authorization_code",
@@ -71,7 +64,10 @@ class McpAuthRelayEndpoint(Endpoint):
             "client_id": client_id,
             "redirect_uri": redirect_uri,
         }
-        if client_secret:
+        code_verifier = (state_payload.get("code_verifier") or "").strip()
+        if code_verifier:
+            data["code_verifier"] = code_verifier
+        if client_secret and token_endpoint_auth_method != "none":
             data["client_secret"] = client_secret
 
         try:
@@ -80,8 +76,11 @@ class McpAuthRelayEndpoint(Endpoint):
             return Response(f"Token request failed: {exc}", status=502, content_type="text/plain")
 
         if response.status_code >= 400:
+            error_text = (response.text or "").strip()
+            if len(error_text) > 400:
+                error_text = f"{error_text[:400]}..."
             return Response(
-                f"Token exchange failed: {response.status_code}",
+                f"Token exchange failed: {response.status_code} {error_text}",
                 status=400,
                 content_type="text/plain",
             )
@@ -99,10 +98,13 @@ class McpAuthRelayEndpoint(Endpoint):
             token_payload = {"access_token": response.text}
 
         token_payload = normalize_token_payload(token_payload)
-        storage.set(
-            build_token_storage_key(user_key, state_mcp_url),
-            json.dumps(token_payload).encode("utf-8"),
-        )
+        if not token_payload.get("access_token"):
+            return Response(
+                "Token exchange succeeded but access_token was not found in response.",
+                status=400,
+                content_type="text/plain",
+            )
+        set_token_payload(storage, user_key, state_mcp_url, token_payload)
         delete_state(storage, state)
 
         html = """
