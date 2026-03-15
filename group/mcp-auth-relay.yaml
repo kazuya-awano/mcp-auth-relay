@@ -1,3 +1,4 @@
 # settings:
 endpoints:
   - endpoints/mcp-auth-relay.yaml
+  - endpoints/logout.yaml
