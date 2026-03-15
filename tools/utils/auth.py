@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import secrets
+import string
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -497,8 +498,36 @@ def _discover_from_mcp_url(mcp_url: str) -> dict[str, Any] | None:
         return None
     resource_meta = _fetch_json(f"{origin}/.well-known/oauth-protected-resource") or {}
     auth_servers = resource_meta.get("authorization_servers") or []
-    issuer = auth_servers[0] if auth_servers else origin
-    auth_meta = _fetch_json(f"{issuer}/.well-known/oauth-authorization-server") or {}
+    candidates: list[str] = []
+
+    def add_candidate(url: str) -> None:
+        normalized = (url or "").strip()
+        if not normalized:
+            return
+        if normalized not in candidates:
+            candidates.append(normalized)
+
+    for auth_server in auth_servers:
+        server_url = (auth_server or "").strip()
+        if not server_url:
+            continue
+        if "/.well-known/oauth-authorization-server" in server_url:
+            # Some servers return the metadata URL directly instead of issuer URL.
+            add_candidate(server_url)
+        else:
+            add_candidate(f"{server_url.rstrip('/')}/.well-known/oauth-authorization-server")
+
+    issuer = (resource_meta.get("issuer") or "").strip()
+    if issuer:
+        add_candidate(f"{issuer.rstrip('/')}/.well-known/oauth-authorization-server")
+    add_candidate(f"{origin.rstrip('/')}/.well-known/oauth-authorization-server")
+
+    auth_meta: dict[str, Any] = {}
+    for candidate in candidates:
+        auth_meta = _fetch_json(candidate) or {}
+        if auth_meta:
+            break
+
     return {
         "authorization_url": auth_meta.get("authorization_endpoint"),
         "token_url": auth_meta.get("token_endpoint"),
@@ -620,7 +649,7 @@ def create_state(
     if not resolved_mcp_url:
         return (None, None)
     state = secrets.token_urlsafe(16)
-    code_verifier = secrets.token_urlsafe(64)
+    code_verifier = _generate_pkce_code_verifier()
     payload = {
         "app_id": _get_app_id(runtime),
         "user_id": _get_user_key(runtime),
@@ -674,6 +703,12 @@ def _to_s256_challenge(code_verifier: str) -> str:
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+def _generate_pkce_code_verifier(length: int = 64) -> str:
+    # RFC7636 unreserved characters, fixed length for better IdP compatibility.
+    chars = string.ascii_letters + string.digits + "-._~"
+    return "".join(secrets.choice(chars) for _ in range(length))
+
+
 def build_login_url(
     credentials: Mapping[str, Any],
     state: str | None = None,
@@ -696,8 +731,14 @@ def build_login_url(
     if state:
         params["state"] = state
     if code_verifier:
+        verifier = code_verifier.strip()
+        if not (43 <= len(verifier) <= 128):
+            return None
+        challenge = _to_s256_challenge(verifier)
+        if not (43 <= len(challenge) <= 128):
+            return None
         params["code_challenge_method"] = "S256"
-        params["code_challenge"] = _to_s256_challenge(code_verifier)
+        params["code_challenge"] = challenge
     return f"{auth_url}?{urlencode(params)}"
 
 

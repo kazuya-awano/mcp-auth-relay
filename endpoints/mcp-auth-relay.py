@@ -1,3 +1,4 @@
+import html
 from urllib.parse import parse_qs
 from typing import Any, Mapping
 
@@ -107,91 +108,178 @@ class McpAuthRelayEndpoint(Endpoint):
         set_token_payload(storage, user_key, state_mcp_url, token_payload)
         delete_state(storage, state)
 
-        html = """
+        server_url = html.escape(state_mcp_url)
+        html_content = f"""
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>認証完了</title>
+    <title>Authentication Complete</title>
     <style>
-      :root { color-scheme: light; }
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans JP", sans-serif;
+      :root {{
+        color-scheme: light;
+        --bg: #f4f8ff;
+        --surface: #ffffff;
+        --line: #dbe8ff;
+        --text: #0f1b33;
+        --muted: #4f5f7d;
+        --primary: #1c64f2;
+        --primary-hover: #1957d3;
+      }}
+
+      * {{
+        box-sizing: border-box;
+      }}
+
+      body {{
         margin: 0;
-        background: linear-gradient(180deg, #f9fbff 0%, #eef3ff 100%);
-        color: #1b2a4a;
-      }
-      .wrap {
-        max-width: 680px;
-        margin: 0 auto;
-        padding: 48px 20px 64px;
-      }
-      .card {
-        background: #ffffff;
-        border: 1px solid #e6ecff;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 20% 10%, #eaf2ff 0, transparent 45%),
+          radial-gradient(circle at 80% 90%, #e6f0ff 0, transparent 42%),
+          var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", "Noto Sans", sans-serif;
+      }}
+
+      .card {{
+        width: min(92vw, 640px);
+        background: var(--surface);
+        border: 1px solid var(--line);
         border-radius: 16px;
-        box-shadow: 0 12px 30px rgba(12, 32, 80, 0.08);
-        padding: 28px;
-      }
-      .title {
-        font-size: 22px;
+        padding: 28px 24px;
+        box-shadow: 0 16px 40px rgba(19, 74, 199, 0.08);
+        text-align: center;
+      }}
+
+      .badge {{
+        display: inline-block;
+        margin-bottom: 10px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid #c7dcff;
+        color: var(--primary);
+        background: #eff5ff;
+        font-size: 12px;
+        font-weight: 600;
+      }}
+
+      h1 {{
+        margin: 0;
+        font-size: 28px;
+        letter-spacing: 0.01em;
         font-weight: 700;
-        margin: 0 0 8px;
-      }
-      .desc {
+      }}
+
+      .desc {{
+        margin: 10px 0 0;
+        color: var(--muted);
         font-size: 14px;
-        line-height: 1.6;
-        margin: 0 0 20px;
-        color: #445a7a;
-      }
-      .actions {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-      button {
-        appearance: none;
-        border: 0;
+      }}
+
+      .server {{
+        margin: 18px 0 0;
+        padding: 12px 14px;
         border-radius: 10px;
-        padding: 12px 16px;
+        border: 1px solid var(--line);
+        background: #f8fbff;
+        text-align: left;
+      }}
+
+      .server-label {{
+        display: block;
+        margin-bottom: 6px;
+        font-size: 12px;
+        color: #5f6f8d;
+      }}
+
+      .server-url {{
+        margin: 0;
+        color: #18345f;
+        font-size: 13px;
+        line-height: 1.5;
+        word-break: break-all;
+      }}
+
+      .actions {{
+        margin-top: 22px;
+      }}
+
+      button {{
+        appearance: none;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 11px 16px;
+        min-width: 160px;
+        font-size: 14px;
         font-weight: 600;
         cursor: pointer;
-      }
-      .primary {
-        background: #2f6bff;
         color: #fff;
-      }
-      .ghost {
-        background: #f0f4ff;
-        color: #2f6bff;
-      }
-      .hint {
-        margin-top: 18px;
+        background: var(--primary);
+        transition: background-color 120ms ease;
+      }}
+
+      button:hover {{
+        background: var(--primary-hover);
+      }}
+
+      .meta {{
+        margin-top: 12px;
+        color: #6b7ea0;
         font-size: 12px;
-        color: #6b7c99;
-      }
-      .code {
-        display: inline-block;
-        margin-top: 6px;
-        padding: 4px 8px;
-        background: #f5f7ff;
-        border-radius: 6px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      }
+      }}
+
+      @media (max-width: 560px) {{
+        .card {{
+          padding: 22px 18px;
+        }}
+
+        h1 {{
+          font-size: 24px;
+        }}
+      }}
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <div class="card">
-        <div class="title">認証完了</div>
-        <p class="desc">Difyに戻って操作を続けてください。</p>
-        <div class="actions">
-          <button class="primary" onclick="window.close()">認証完了 &amp; 閉じる</button>
-        </div>
+    <main class="card">
+      <span class="badge">OAuth Success</span>
+      <h1>Authentication complete</h1>
+      <p class="desc">You can return to Dify and continue your workflow.</p>
+
+      <section class="server">
+        <span class="server-label">Server URL</span>
+        <p class="server-url">{server_url}</p>
+      </section>
+
+      <div class="actions">
+        <button type="button" onclick="closeWindow()">Close now</button>
       </div>
-    </div>
+
+      <p class="meta">
+        This window closes automatically in <span id="countdown">5</span>s.
+      </p>
+    </main>
+
+    <script>
+      function closeWindow() {{
+        window.close();
+      }}
+
+      let remaining = 5;
+      const countdown = document.getElementById("countdown");
+      const timer = setInterval(() => {{
+        remaining -= 1;
+        if (countdown) countdown.textContent = String(Math.max(remaining, 0));
+        if (remaining <= 0) {{
+          clearInterval(timer);
+          closeWindow();
+        }}
+      }}, 1000);
+    </script>
   </body>
 </html>
 """
-        return Response(html.encode("utf-8"), status=200, content_type="text/html; charset=utf-8")
+        return Response(html_content.encode("utf-8"), status=200, content_type="text/html; charset=utf-8")
