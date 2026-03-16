@@ -1,19 +1,19 @@
-version: 0.0.7
+version: 0.0.1
 type: plugin
 author: kazuya-awano
 name: mcp-auth-relay
 tags:
   - utilities
 label:
-  en_US: mcp-auth-relay
-  ja_JP: mcp-auth-relay
-  zh_Hans: mcp-auth-relay
-  pt_BR: mcp-auth-relay
+  en_US: MCP Auth Relay
+  ja_JP: MCP Auth Relay
+  zh_Hans: MCP Auth Relay
+  pt_BR: MCP Auth Relay
 description:
-  en_US: mcp-auth-relay desc
-  ja_JP: mcp-auth-relay desc
-  zh_Hans: mcp-auth-relay desc
-  pt_BR: mcp-auth-relay desc
+  en_US: Relay remote MCP tools with per-user OAuth, callback handling, and tool discovery for Dify.
+  ja_JP: Dify からリモート MCP ツールを利用するための、ユーザー単位 OAuth とコールバック処理付きリレーです。
+  zh_Hans: Relay remote MCP tools with per-user OAuth, callback handling, and tool discovery for Dify.
+  pt_BR: Relay remote MCP tools with per-user OAuth, callback handling, and tool discovery for Dify.
 icon: icon.svg
 icon_dark: icon-dark.svg
 resource:
