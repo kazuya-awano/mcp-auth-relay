@@ -1,20 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" role="img" aria-label="Export text to file icon">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 256 256" role="img" aria-label="MCP Auth Relay icon">
   <defs>
-    <!-- 背景グラデーション（オレンジ系） -->
     <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#fcbeb3ff"/>
-      <stop offset="100%" stop-color="#f4a803ff"/>
+      <stop offset="0%" stop-color="#fcbeb3" />
+      <stop offset="100%" stop-color="#f4a803" />
     </linearGradient>
     <style>
-      .ink { fill:#0B2540; }
+      .ink { fill: #0b2540; }
+      .label { fill: #0b2540; font-family: "Segoe UI", Arial, sans-serif; font-size: 72px; font-weight: 1000;}
     </style>
   </defs>
 
-  <!-- 背景（正方形・角丸） -->
-  <rect x="0" y="0" width="256" height="256" rx="28" fill="url(#bgGrad)"/>
+  <rect x="0" y="0" width="256" height="256" rx="28" fill="url(#bgGrad)" />
 
-  <!-- アイコン小さめで中央寄せ -->
-  <g transform="translate(25,25) scale(0.2) translate(0,960)">
-    <path d="M485-240Zm26 80H160v-112q0-34 17.5-62.5T224-378q62-31 126-46.5T480-440v80q-56 0-111 13.5T260-306q-9 5-14.5 14t-5.5 20v32h245q4 21 10.5 41t15.5 39Zm209 80q-73-18-116.5-80T560-298v-102l160-80 160 80v102q0 76-43.5 138T720-80Zm0-84q38-18 59-55t21-79v-52l-80-40-80 40v52q0 42 21 79t59 55ZM367-527q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47Zm169.5-56.5Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-640Zm240 363Z"/>
+  <text x="128" y="74" text-anchor="middle" class="label">MCP</text>
+
+  <g transform="translate(16,48) scale(0.22) translate(0,960)">
+    <path class="ink" d="M485-240Zm26 80H160v-112q0-34 17.5-62.5T224-378q62-31 126-46.5T480-440v80q-56 0-111 13.5T260-306q-9 5-14.5 14t-5.5 20v32h245q4 21 10.5 41t15.5 39Zm209 80q-73-18-116.5-80T560-298v-102l160-80 160 80v102q0 76-43.5 138T720-80Zm0-84q38-18 59-55t21-79v-52l-80-40-80 40v52q0 42 21 79t59 55ZM367-527q-47-47-47-113t47-113q47-47 113-47t113 47q47 47 47 113t-47 113q-47 47-113 47t-113-47Zm169.5-56.5Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-640Zm240 363Z"/>
   </g>
 </svg>
