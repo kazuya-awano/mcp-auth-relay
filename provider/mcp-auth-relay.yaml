@@ -3,8 +3,10 @@ identity:
   name: "mcp-auth-relay"
   label:
     en_US: "MCP Auth Relay"
+    ja_JP: "MCP Auth Relay"
   description:
     en_US: "Relay remote MCP tools with per-user OAuth. Use mcp_tool_list to inspect tools and mcp_tool_call to execute tools by tool_ref."
+    ja_JP: "ユーザー単位 OAuth でリモート MCP ツールを中継します。mcp_tool_list でツール確認、mcp_tool_call で実行します。"
   icon: "icon.svg"
   tags:
     - "utilities"
@@ -14,18 +16,24 @@ credentials_for_provider:
     required: true
     label:
       en_US: "MCP Servers Config JSON"
+      ja_JP: "MCP サーバー設定 JSON"
     placeholder:
-      en_US: '{"servers":[{"server_id":"notion","mcp_url":"https://mcp.notion.com/mcp","redirect_uri":"https://<your-host>/e/<hook-id>/callback","client_id":"<optional>","client_secret":"<optional>","scope":"<optional>"}]}'
+      en_US: '{"servers":[{"server_id":"notion","description":"Search and write to Notion workspace","mcp_url":"https://mcp.notion.com/mcp","redirect_uri":"https://<your-host>/e/<hook-id>/callback","client_id":"<optional>","client_secret":"<optional>","scope":"<optional>"}]}'
+      ja_JP: '{"servers":[{"server_id":"notion","description":"Notion workspace search and write","mcp_url":"https://mcp.notion.com/mcp","redirect_uri":"https://<your-host>/e/<hook-id>/callback","client_id":"<optional>","client_secret":"<optional>","scope":"<optional>"}]}'
     help:
-      en_US: "Define MCP servers in JSON. authorization_url/token_url are optional and can be discovered from MCP metadata."
+      en_US: "Define MCP servers in JSON. Add description to help the model choose a server. authorization_url/token_url are optional and can be discovered from MCP metadata."
+      ja_JP: "MCP サーバーを JSON で定義します。description を付けるとモデルがサーバーを選びやすくなります。authorization_url と token_url はメタデータ発見で省略できます。"
   tool_list_cache_ttl_seconds:
     type: text-input
     label:
       en_US: "Tool List Cache TTL Seconds"
+      ja_JP: "ツール一覧キャッシュ TTL 秒数"
     placeholder:
       en_US: "300"
+      ja_JP: "300"
     help:
       en_US: "Optional cache TTL for tools/list per MCP server. 0 or negative disables cache."
+      ja_JP: "MCP サーバーごとの tools/list キャッシュ TTL です。0 以下でキャッシュ無効です。"
 tools:
   - tools/tool_list.yaml
   - tools/tool_call.yaml

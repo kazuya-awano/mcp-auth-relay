@@ -5,22 +5,34 @@ identity:
     en_US: "List MCP Tools"
     zh_Hans: "List MCP Tools"
     pt_BR: "List MCP Tools"
-    ja_JP: "List MCP Tools"
+    ja_JP: "MCP ツール一覧"
 description:
   human:
-    en_US: "List tools available on the configured MCP server."
-    zh_Hans: "List tools available on the configured MCP server."
-    pt_BR: "List tools available on the configured MCP server."
-    ja_JP: "List tools available on the configured MCP server."
-  llm: "List MCP tools from configured servers. It returns tool_ref values in server_id::tool_name format. Always use tool_ref with mcp_tool_call; do not call MCP tool names directly as Dify tools."
+    en_US: "List tools available on the configured MCP servers."
+    zh_Hans: "List tools available on the configured MCP servers."
+    pt_BR: "List tools available on the configured MCP servers."
+    ja_JP: "設定済み MCP サーバーで利用可能なツールを一覧します。"
+  llm: "List MCP tools from configured servers. Prefer setting server_id or server_ids when you know the likely target server. The result returns tool_ref values in server_id::tool_name format and server descriptions to help routing. Always use tool_ref with mcp_tool_call; do not call MCP tool names directly as Dify tools."
 parameters:
   - name: server_id
     type: string
     label:
       en_US: Server ID
+      ja_JP: サーバー ID
     human_description:
       en_US: "Optional server identifier to list tools only from one server."
-    llm_description: "Optional server identifier to narrow tool listing."
+      ja_JP: "1つのサーバーだけを対象にする任意の識別子です。"
+    llm_description: "Optional single server identifier to narrow tool listing."
+    form: llm
+  - name: server_ids
+    type: string
+    label:
+      en_US: Server IDs
+      ja_JP: サーバー ID 一覧
+    human_description:
+      en_US: "Optional JSON string array or comma-separated server IDs to list tools from multiple servers."
+      ja_JP: "複数サーバーを対象にする JSON 配列文字列またはカンマ区切り文字列です。"
+    llm_description: 'Optional server ID set used to narrow tool listing across multiple servers. Example: ["notion","msdocs"]'
     form: llm
 extra:
   python:

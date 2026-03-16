@@ -751,6 +751,7 @@ def _normalize_server_config(server: Mapping[str, Any], fallback_id: str) -> dic
     return {
         "server_id": server_id,
         "mcp_url": mcp_url,
+        "description": (cfg.get("description") or "").strip(),
         "authorization_url": cfg.get("authorization_url") or cfg.get("auth_url"),
         "token_url": cfg.get("token_url"),
         "client_id": cfg.get("client_id"),

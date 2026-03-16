@@ -1,4 +1,5 @@
 import logging
+import json
 from collections.abc import Generator
 from typing import Any
 
@@ -35,6 +36,42 @@ def _resolve_cache_ttl_seconds(credentials: dict[str, Any]) -> int:
     return min(ttl, 86400)
 
 
+def _parse_server_ids(tool_parameters: dict[str, Any]) -> tuple[list[str], str | None]:
+    selected_ids: list[str] = []
+    raw_values = []
+    if tool_parameters.get("server_id") not in (None, ""):
+        raw_values.append(tool_parameters.get("server_id"))
+    if tool_parameters.get("server_ids") not in (None, ""):
+        raw_values.append(tool_parameters.get("server_ids"))
+
+    for raw in raw_values:
+        if isinstance(raw, list):
+            candidates = raw
+        elif isinstance(raw, str):
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("["):
+                try:
+                    parsed = json.loads(stripped)
+                except json.JSONDecodeError as exc:
+                    return [], f"server_ids must be a JSON string array or comma-separated string: {exc}"
+                if not isinstance(parsed, list):
+                    return [], "server_ids JSON must be an array of server IDs."
+                candidates = parsed
+            else:
+                candidates = [part.strip() for part in stripped.split(",")]
+        else:
+            return [], "server_ids must be a JSON string array, comma-separated string, or string list."
+
+        for candidate in candidates:
+            value = (candidate or "").strip() if isinstance(candidate, str) else ""
+            if value and value not in selected_ids:
+                selected_ids.append(value)
+
+    return selected_ids, None
+
+
 class MCPToolList(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         credentials = self.runtime.credentials or {}
@@ -44,19 +81,25 @@ class MCPToolList(Tool):
             yield self.create_text_message(str(exc))
             return
 
-        server_id = (tool_parameters.get("server_id") or "").strip() or None
+        selected_server_ids, parse_error = _parse_server_ids(tool_parameters)
+        if parse_error:
+            yield self.create_text_message(parse_error)
+            return
+
         try:
             servers = get_servers(parsed_config)
         except ValueError as exc:
             yield self.create_text_message(str(exc))
             return
 
-        if server_id:
-            matched = find_server_by_id(servers, server_id)
-            if not matched:
-                yield self.create_text_message(f"Unknown server_id: {server_id}")
-                return
-            target_servers = [matched]
+        if selected_server_ids:
+            target_servers = []
+            for selected_server_id in selected_server_ids:
+                matched = find_server_by_id(servers, selected_server_id)
+                if not matched:
+                    yield self.create_text_message(f"Unknown server_id: {selected_server_id}")
+                    return
+                target_servers.append(matched)
         else:
             target_servers = [dict(server) for server in servers]
 
@@ -71,6 +114,7 @@ class MCPToolList(Tool):
             resolved_server = resolve_server_oauth_config(server)
             mcp_url = resolved_server.get("mcp_url")
             current_server_id = resolved_server.get("server_id")
+            current_server_description = resolved_server.get("description") or ""
             if not mcp_url:
                 errors.append({"server_id": current_server_id, "error": "Missing mcp_url"})
                 continue
@@ -111,6 +155,7 @@ class MCPToolList(Tool):
                     auth_required.append(
                         {
                             "server_id": current_server_id,
+                            "description": current_server_description,
                             "status": "need_auth",
                             "login_url": login_url,
                             "message": (
@@ -138,12 +183,14 @@ class MCPToolList(Tool):
                     continue
                 enriched_tool = dict(tool)
                 enriched_tool["server_id"] = current_server_id
+                enriched_tool["server_description"] = current_server_description
                 enriched_tool["tool_ref"] = f"{current_server_id}::{tool_name}"
                 all_tools.append(enriched_tool)
                 tool_count += 1
             server_results.append(
                 {
                     "server_id": current_server_id,
+                    "description": current_server_description,
                     "source": source,
                     "tool_count": tool_count,
                 }
@@ -151,7 +198,7 @@ class MCPToolList(Tool):
 
         yield self.create_json_message(
             {
-                "usage": "Use mcp_tool_call with tool_ref and input JSON. Do not call MCP tool names directly as Dify tools.",
+                "usage": "Use mcp_tool_call with tool_ref and input JSON. If you already know the target server, call mcp_tool_list with server_id or server_ids first. Do not call MCP tool names directly as Dify tools.",
                 "tools": all_tools,
                 "auth_required": auth_required,
                 "errors": errors,

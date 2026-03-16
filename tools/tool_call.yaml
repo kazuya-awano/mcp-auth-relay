@@ -5,13 +5,13 @@ identity:
     en_US: "Call MCP Tool"
     zh_Hans: "Call MCP Tool"
     pt_BR: "Call MCP Tool"
-    ja_JP: "Call MCP Tool"
+    ja_JP: "MCP ツール実行"
 description:
   human:
     en_US: "Execute one MCP tool on the configured MCP server."
     zh_Hans: "Execute one MCP tool on the configured MCP server."
     pt_BR: "Execute one MCP tool on the configured MCP server."
-    ja_JP: "Execute one MCP tool on the configured MCP server."
+    ja_JP: "設定済み MCP サーバー上のツールを1つ実行します。"
   llm: "Execute one MCP tool by tool_ref. tool_ref format is server_id::tool_name and should come from mcp_tool_list."
 parameters:
   - name: tool_ref
@@ -19,8 +19,10 @@ parameters:
     required: true
     label:
       en_US: Tool Ref
+      ja_JP: ツール参照名
     human_description:
       en_US: "MCP tool reference in server_id::tool_name format, returned by mcp_tool_list."
+      ja_JP: "mcp_tool_list が返す server_id::tool_name 形式のツール参照名です。"
     llm_description: "MCP tool reference in server_id::tool_name format returned by mcp_tool_list."
     form: llm
   - name: input
@@ -28,8 +30,10 @@ parameters:
     required: true
     label:
       en_US: Input JSON
+      ja_JP: 入力 JSON
     human_description:
       en_US: "Arguments as a JSON string. Use {} when the tool takes no arguments."
+      ja_JP: "引数を JSON 文字列で指定します。引数が不要な場合は {} を使います。"
     llm_description: 'JSON string for MCP tool arguments, matching the tool schema. Example: {"query":"test"}'
     form: llm
 extra:
