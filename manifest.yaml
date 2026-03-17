@@ -38,7 +38,8 @@ meta:
     language: python
     version: "3.12"
     entrypoint: main
-  minimum_dify_version: null
+  minimum_dify_version: 1.0.0
 created_at: 2026-01-27T12:08:30.45282134+09:00
+repo: https://github.com/kazuya-awano/mcp-auth-relay
 privacy: PRIVACY.md
 verified: false
