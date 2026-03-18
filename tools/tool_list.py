@@ -5,6 +5,7 @@ from collections.abc import Generator
 from typing import Any
 
 from dify_plugin import Tool
+from dify_plugin.config.logger_format import plugin_logger_handler
 from dify_plugin.entities.tool import ToolInvokeMessage
 
 from tools.utils.auth import (
@@ -26,6 +27,9 @@ from tools.utils.auth import (
 from tools.utils.mcp_client import McpAuthError, McpSessionError, create_client
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+if plugin_logger_handler not in logger.handlers:
+    logger.addHandler(plugin_logger_handler)
 
 
 def _resolve_cache_ttl_seconds(credentials: dict[str, Any]) -> int:
@@ -120,15 +124,10 @@ class MCPToolList(Tool):
 
         for server in target_servers:
             server_started_at = time.perf_counter()
-            oauth_resolve_started_at = time.perf_counter()
-            resolved_server = resolve_server_oauth_config_cached(
-                server,
-                storage=storage,
-            )
-            oauth_resolve_ms = int((time.perf_counter() - oauth_resolve_started_at) * 1000)
-            mcp_url = resolved_server.get("mcp_url")
-            current_server_id = resolved_server.get("server_id")
-            current_server_description = resolved_server.get("description") or ""
+            oauth_resolve_ms = 0
+            mcp_url = server.get("mcp_url")
+            current_server_id = server.get("server_id")
+            current_server_description = server.get("description") or ""
             if not mcp_url:
                 errors.append({"server_id": current_server_id, "error": "Missing mcp_url"})
                 continue
@@ -138,25 +137,37 @@ class MCPToolList(Tool):
             list_ms = 0
             session_reused = False
             session_retry = False
+            get_tool_list_cache_ms = 0
+            get_access_token_ms = 0
+            get_mcp_session_ms = 0
+            set_mcp_session_ms = 0
+            delete_mcp_session_ms = 0
+            set_tool_list_cache_ms = 0
             if cache_ttl_seconds > 0:
+                get_tool_list_cache_started_at = time.perf_counter()
                 cached_tools = get_tool_list_cache(
                     storage,
                     mcp_url,
                     max_age_seconds=cache_ttl_seconds,
                 )
+                get_tool_list_cache_ms = int((time.perf_counter() - get_tool_list_cache_started_at) * 1000)
             if cached_tools is not None:
                 tools = cached_tools
                 source = "cache"
             else:
                 source = "live"
+                get_access_token_started_at = time.perf_counter()
                 access_token = get_access_token(self, mcp_url)
+                get_access_token_ms = int((time.perf_counter() - get_access_token_started_at) * 1000)
                 headers = build_auth_headers(access_token)
+                get_mcp_session_started_at = time.perf_counter()
                 cached_session_id = get_mcp_session_id(
                     storage,
                     user_key,
                     mcp_url,
                     access_token,
                 )
+                get_mcp_session_ms = int((time.perf_counter() - get_mcp_session_started_at) * 1000)
                 session_reused = bool(cached_session_id)
                 try:
                     tools: list[dict[str, Any]] = []
@@ -179,7 +190,8 @@ class MCPToolList(Tool):
                             tools = client.list_tools()
                             list_ms = int((time.perf_counter() - list_started_at) * 1000)
                             latest_session_id = client.get_session_id()
-                            if latest_session_id:
+                            if latest_session_id and latest_session_id != cached_session_id:
+                                set_mcp_session_started_at = time.perf_counter()
                                 set_mcp_session_id(
                                     storage,
                                     user_key,
@@ -187,11 +199,20 @@ class MCPToolList(Tool):
                                     access_token,
                                     latest_session_id,
                                 )
+                                set_mcp_session_ms = int(
+                                    (time.perf_counter() - set_mcp_session_started_at) * 1000
+                                )
+                                cached_session_id = latest_session_id
                             break
                         except McpSessionError:
                             if use_cached_session:
                                 session_retry = True
+                                delete_mcp_session_started_at = time.perf_counter()
                                 delete_mcp_session_id(storage, user_key, mcp_url, access_token)
+                                delete_mcp_session_ms = int(
+                                    (time.perf_counter() - delete_mcp_session_started_at) * 1000
+                                )
+                                cached_session_id = None
                                 continue
                             raise
                         finally:
@@ -200,9 +221,32 @@ class MCPToolList(Tool):
                             except Exception:
                                 pass
                     if cache_ttl_seconds > 0:
+                        set_tool_list_cache_started_at = time.perf_counter()
                         set_tool_list_cache(storage, mcp_url, tools)
+                        set_tool_list_cache_ms = int(
+                            (time.perf_counter() - set_tool_list_cache_started_at) * 1000
+                        )
                 except McpAuthError:
-                    state, code_verifier = create_state(self, mcp_url, oauth_cfg=resolved_server)
+                    resolved_server = dict(server)
+                    oauth_resolve_started_at = time.perf_counter()
+                    try:
+                        resolved_server = resolve_server_oauth_config_cached(
+                            server,
+                            storage=storage,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to resolve OAuth config in auth error path. server_id=%s",
+                            current_server_id,
+                        )
+                    oauth_resolve_ms = int((time.perf_counter() - oauth_resolve_started_at) * 1000)
+
+                    resolved_mcp_url = resolved_server.get("mcp_url") or mcp_url
+                    state, code_verifier = create_state(
+                        self,
+                        resolved_mcp_url,
+                        oauth_cfg=resolved_server,
+                    )
                     login_url = None
                     if state and code_verifier:
                         login_url = build_login_url(
@@ -224,13 +268,33 @@ class MCPToolList(Tool):
                         }
                     )
                     total_server_ms = int((time.perf_counter() - server_started_at) * 1000)
+                    tracked_server_ms = (
+                        oauth_resolve_ms
+                        + get_tool_list_cache_ms
+                        + get_access_token_ms
+                        + get_mcp_session_ms
+                        + initialize_ms
+                        + list_ms
+                        + set_mcp_session_ms
+                        + delete_mcp_session_ms
+                        + set_tool_list_cache_ms
+                    )
+                    untracked_server_ms = max(total_server_ms - tracked_server_ms, 0)
                     logger.info(
-                        "mcp_tool_list auth_required server_id=%s oauth_resolve_ms=%s initialize_ms=%s session_reused=%s session_retry=%s total_ms=%s",
+                        "mcp_tool_list auth_required server_id=%s oauth_resolve_ms=%s get_tool_list_cache_ms=%s get_access_token_ms=%s get_mcp_session_ms=%s initialize_ms=%s list_ms=%s set_mcp_session_ms=%s delete_mcp_session_ms=%s set_tool_list_cache_ms=%s session_reused=%s session_retry=%s untracked_ms=%s total_ms=%s",
                         current_server_id,
                         oauth_resolve_ms,
+                        get_tool_list_cache_ms,
+                        get_access_token_ms,
+                        get_mcp_session_ms,
                         initialize_ms,
+                        list_ms,
+                        set_mcp_session_ms,
+                        delete_mcp_session_ms,
+                        set_tool_list_cache_ms,
                         session_reused,
                         session_retry,
+                        untracked_server_ms,
                         total_server_ms,
                     )
                     continue
@@ -259,15 +323,34 @@ class MCPToolList(Tool):
                 }
             )
             total_server_ms = int((time.perf_counter() - server_started_at) * 1000)
+            tracked_server_ms = (
+                oauth_resolve_ms
+                + get_tool_list_cache_ms
+                + get_access_token_ms
+                + get_mcp_session_ms
+                + initialize_ms
+                + list_ms
+                + set_mcp_session_ms
+                + delete_mcp_session_ms
+                + set_tool_list_cache_ms
+            )
+            untracked_server_ms = max(total_server_ms - tracked_server_ms, 0)
             logger.info(
-                "mcp_tool_list timing server_id=%s source=%s oauth_resolve_ms=%s initialize_ms=%s list_ms=%s session_reused=%s session_retry=%s total_ms=%s",
+                "mcp_tool_list timing server_id=%s source=%s oauth_resolve_ms=%s get_tool_list_cache_ms=%s get_access_token_ms=%s get_mcp_session_ms=%s initialize_ms=%s list_ms=%s set_mcp_session_ms=%s delete_mcp_session_ms=%s set_tool_list_cache_ms=%s session_reused=%s session_retry=%s untracked_ms=%s total_ms=%s",
                 current_server_id,
                 source,
                 oauth_resolve_ms,
+                get_tool_list_cache_ms,
+                get_access_token_ms,
+                get_mcp_session_ms,
                 initialize_ms,
                 list_ms,
+                set_mcp_session_ms,
+                delete_mcp_session_ms,
+                set_tool_list_cache_ms,
                 session_reused,
                 session_retry,
+                untracked_server_ms,
                 total_server_ms,
             )
 
