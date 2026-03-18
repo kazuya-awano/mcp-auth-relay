@@ -45,6 +45,7 @@ _TOKEN_INDEX_KEY = "token_index:v1"
 _TOOL_LIST_CACHE_INDEX_KEY = "tool_list_cache_index:v1"
 _TOOL_LIST_CACHE_PREFIX = "tool_list_cache:v1"
 _DEFAULT_TOOL_LIST_CACHE_TTL_SECONDS = 300
+_SERVER_OAUTH_CACHE_INDEX_KEY = "server_oauth_cache_index:v1"
 _SERVER_OAUTH_CACHE_PREFIX = "server_oauth_cache:v1"
 _DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS = 86400
 _MCP_SESSION_CACHE_INDEX_KEY = "mcp_session_cache_index:v1"
@@ -180,6 +181,40 @@ def _add_mcp_session_cache_index_entry(storage: Any, cache_key: str, mcp_url: st
     index = _load_mcp_session_cache_index(storage)
     index[cache_key] = _resource_key(mcp_url)
     _save_mcp_session_cache_index(storage, index)
+
+
+def _load_server_oauth_cache_index(storage: Any) -> dict[str, str]:
+    if not storage:
+        return {}
+    try:
+        raw = storage.get(_SERVER_OAUTH_CACHE_INDEX_KEY)
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+    if isinstance(decoded, dict):
+        return {str(k): str(v) for k, v in decoded.items()}
+    if isinstance(decoded, list):
+        return {str(k): "" for k in decoded}
+    return {}
+
+
+def _save_server_oauth_cache_index(storage: Any, index: Mapping[str, str]) -> None:
+    if not storage:
+        return
+    storage.set(_SERVER_OAUTH_CACHE_INDEX_KEY, json.dumps(index).encode("utf-8"))
+
+
+def _add_server_oauth_cache_index_entry(storage: Any, cache_key: str, mcp_url: str) -> None:
+    if not storage or not cache_key:
+        return
+    index = _load_server_oauth_cache_index(storage)
+    index[cache_key] = _resource_key(mcp_url)
+    _save_server_oauth_cache_index(storage, index)
 
 
 def _oauth_cfg_key(app_id: str) -> str:
@@ -556,6 +591,41 @@ def delete_mcp_session_cache(storage: Any, mcp_url: str | None = None) -> int:
     return deleted
 
 
+def delete_server_oauth_cache(storage: Any, mcp_url: str | None = None) -> int:
+    if not storage:
+        return 0
+    resource = _resource_key(mcp_url) if mcp_url else None
+    index = _load_server_oauth_cache_index(storage)
+    target_keys: list[str] = []
+    for cache_key, indexed_resource in index.items():
+        if resource and indexed_resource != resource:
+            continue
+        target_keys.append(cache_key)
+
+    deleted = 0
+    for cache_key in target_keys:
+        try:
+            storage.delete(cache_key)
+        except Exception:
+            continue
+        deleted += 1
+        index.pop(cache_key, None)
+
+    # Best effort: delete deterministic key even if old index was missing.
+    if mcp_url:
+        direct_key = _server_oauth_cache_key(mcp_url)
+        if direct_key not in target_keys:
+            try:
+                storage.delete(direct_key)
+                deleted += 1
+            except Exception:
+                pass
+            index.pop(direct_key, None)
+
+    _save_server_oauth_cache_index(storage, index)
+    return deleted
+
+
 def _load_server_oauth_cache(
     storage: Any,
     mcp_url: str,
@@ -608,6 +678,7 @@ def _save_server_oauth_cache(
         "config": dict(config),
     }
     storage.set(cache_key, json.dumps(payload).encode("utf-8"))
+    _add_server_oauth_cache_index_entry(storage, cache_key, resolved_mcp_url)
 
 
 def normalize_token_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
