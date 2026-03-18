@@ -1,5 +1,6 @@
 import logging
 import json
+import time
 from collections.abc import Generator
 from typing import Any
 
@@ -15,7 +16,7 @@ from tools.utils.auth import (
     get_tool_list_cache,
     get_servers,
     parse_mcp_servers_config,
-    resolve_server_oauth_config,
+    resolve_server_oauth_config_cached,
     set_tool_list_cache,
 )
 from tools.utils.mcp_client import McpAuthError, create_client
@@ -74,6 +75,7 @@ def _parse_server_ids(tool_parameters: dict[str, Any]) -> tuple[list[str], str |
 
 class MCPToolList(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
+        started_at = time.perf_counter()
         credentials = self.runtime.credentials or {}
         try:
             parsed_config = parse_mcp_servers_config(credentials)
@@ -111,7 +113,13 @@ class MCPToolList(Tool):
         cache_ttl_seconds = _resolve_cache_ttl_seconds(credentials)
 
         for server in target_servers:
-            resolved_server = resolve_server_oauth_config(server)
+            server_started_at = time.perf_counter()
+            oauth_resolve_started_at = time.perf_counter()
+            resolved_server = resolve_server_oauth_config_cached(
+                server,
+                storage=storage,
+            )
+            oauth_resolve_ms = int((time.perf_counter() - oauth_resolve_started_at) * 1000)
             mcp_url = resolved_server.get("mcp_url")
             current_server_id = resolved_server.get("server_id")
             current_server_description = resolved_server.get("description") or ""
@@ -120,6 +128,8 @@ class MCPToolList(Tool):
                 continue
 
             cached_tools = None
+            initialize_ms = 0
+            list_ms = 0
             if cache_ttl_seconds > 0:
                 cached_tools = get_tool_list_cache(
                     storage,
@@ -139,8 +149,12 @@ class MCPToolList(Tool):
                     timeout=credentials.get("timeout", 50),
                 )
                 try:
+                    initialize_started_at = time.perf_counter()
                     client.initialize()
+                    initialize_ms = int((time.perf_counter() - initialize_started_at) * 1000)
+                    list_started_at = time.perf_counter()
                     tools = client.list_tools()
+                    list_ms = int((time.perf_counter() - list_started_at) * 1000)
                     if cache_ttl_seconds > 0:
                         set_tool_list_cache(storage, mcp_url, tools)
                 except McpAuthError:
@@ -164,6 +178,14 @@ class MCPToolList(Tool):
                                 else "Authentication required but login URL could not be generated."
                             ),
                         }
+                    )
+                    total_server_ms = int((time.perf_counter() - server_started_at) * 1000)
+                    logger.info(
+                        "mcp_tool_list auth_required server_id=%s oauth_resolve_ms=%s initialize_ms=%s total_ms=%s",
+                        current_server_id,
+                        oauth_resolve_ms,
+                        initialize_ms,
+                        total_server_ms,
                     )
                     continue
                 except Exception as exc:
@@ -195,6 +217,24 @@ class MCPToolList(Tool):
                     "tool_count": tool_count,
                 }
             )
+            total_server_ms = int((time.perf_counter() - server_started_at) * 1000)
+            logger.info(
+                "mcp_tool_list timing server_id=%s source=%s oauth_resolve_ms=%s initialize_ms=%s list_ms=%s total_ms=%s",
+                current_server_id,
+                source,
+                oauth_resolve_ms,
+                initialize_ms,
+                list_ms,
+                total_server_ms,
+            )
+
+        total_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "mcp_tool_list total servers=%s selected_server_ids=%s total_ms=%s",
+            len(target_servers),
+            len(selected_server_ids),
+            total_ms,
+        )
 
         yield self.create_json_message(
             {

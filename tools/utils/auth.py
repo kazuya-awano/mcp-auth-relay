@@ -45,6 +45,8 @@ _TOKEN_INDEX_KEY = "token_index:v1"
 _TOOL_LIST_CACHE_INDEX_KEY = "tool_list_cache_index:v1"
 _TOOL_LIST_CACHE_PREFIX = "tool_list_cache:v1"
 _DEFAULT_TOOL_LIST_CACHE_TTL_SECONDS = 300
+_SERVER_OAUTH_CACHE_PREFIX = "server_oauth_cache:v1"
+_DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS = 86400
 
 
 def build_token_storage_key(user_id: str, mcp_url: str) -> str:
@@ -97,6 +99,10 @@ def _remove_token_index_entry(storage: Any, token_key: str) -> None:
 
 def _tool_list_cache_key(mcp_url: str) -> str:
     return f"{_TOOL_LIST_CACHE_PREFIX}:{_resource_key(mcp_url)}"
+
+
+def _server_oauth_cache_key(mcp_url: str) -> str:
+    return f"{_SERVER_OAUTH_CACHE_PREFIX}:{_resource_key(mcp_url)}"
 
 
 def _load_tool_list_cache_index(storage: Any) -> dict[str, str]:
@@ -396,6 +402,60 @@ def delete_tool_list_cache(storage: Any, mcp_url: str | None = None) -> int:
 
     _save_tool_list_cache_index(storage, index)
     return deleted
+
+
+def _load_server_oauth_cache(
+    storage: Any,
+    mcp_url: str,
+    max_age_seconds: int = _DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS,
+) -> dict[str, Any] | None:
+    if not storage:
+        return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return None
+    cache_key = _server_oauth_cache_key(resolved_mcp_url)
+    try:
+        raw = storage.get(cache_key)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    cached_at = payload.get("cached_at")
+    try:
+        cached_at_int = int(cached_at)
+    except Exception:
+        return None
+    if max_age_seconds > 0 and (int(time.time()) - cached_at_int) > max_age_seconds:
+        return None
+    config = payload.get("config")
+    if not isinstance(config, Mapping):
+        return None
+    return dict(config)
+
+
+def _save_server_oauth_cache(
+    storage: Any,
+    mcp_url: str,
+    config: Mapping[str, Any],
+) -> None:
+    if not storage:
+        return
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return
+    cache_key = _server_oauth_cache_key(resolved_mcp_url)
+    payload = {
+        "cached_at": int(time.time()),
+        "config": dict(config),
+    }
+    storage.set(cache_key, json.dumps(payload).encode("utf-8"))
 
 
 def normalize_token_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -876,19 +936,48 @@ def _resolve_token_auth_method(
     return "none"
 
 
-def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
+def resolve_server_oauth_config_cached(
+    server: Mapping[str, Any],
+    storage: Any = None,
+    max_cache_age_seconds: int = _DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS,
+) -> dict[str, Any]:
     config = dict(server or {})
     config["mcp_url"] = normalize_mcp_url(config.get("mcp_url"))
+    resolved_mcp_url = config.get("mcp_url") or ""
+
     discovered_methods: list[str] = []
     registered: Mapping[str, Any] | None = None
+    cached_cfg = _load_server_oauth_cache(
+        storage,
+        resolved_mcp_url,
+        max_age_seconds=max_cache_age_seconds,
+    )
+    if cached_cfg:
+        for key in (
+            "authorization_url",
+            "token_url",
+            "registration_endpoint",
+            "client_id",
+            "client_secret",
+            "token_endpoint_auth_method",
+        ):
+            if not config.get(key) and cached_cfg.get(key):
+                config[key] = cached_cfg.get(key)
+        methods = cached_cfg.get("token_endpoint_auth_methods_supported") or []
+        if isinstance(methods, list):
+            discovered_methods = [str(m) for m in methods if m]
+
     if not config.get("authorization_url") or not config.get("token_url"):
-        discovered = _discover_from_mcp_url(config.get("mcp_url") or "") or {}
+        discovered = _discover_from_mcp_url(resolved_mcp_url) or {}
         config["authorization_url"] = config.get("authorization_url") or discovered.get("authorization_url")
         config["token_url"] = config.get("token_url") or discovered.get("token_url")
-        config["registration_endpoint"] = discovered.get("registration_endpoint")
+        config["registration_endpoint"] = config.get("registration_endpoint") or discovered.get(
+            "registration_endpoint"
+        )
         methods = discovered.get("token_endpoint_auth_methods_supported") or []
         if isinstance(methods, list):
             discovered_methods = [str(m) for m in methods if m]
+            config["token_endpoint_auth_methods_supported"] = discovered_methods
 
     if not config.get("client_id") and config.get("registration_endpoint"):
         registered = _register_client(
@@ -909,4 +998,27 @@ def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
     config["token_endpoint_auth_method"] = token_auth_method
     if token_auth_method == "none":
         config.pop("client_secret", None)
+
+    if storage and resolved_mcp_url:
+        cache_payload: dict[str, Any] = {}
+        for key in (
+            "authorization_url",
+            "token_url",
+            "registration_endpoint",
+            "client_id",
+            "client_secret",
+            "token_endpoint_auth_method",
+            "token_endpoint_auth_methods_supported",
+        ):
+            value = config.get(key)
+            if value in (None, "", []):
+                continue
+            cache_payload[key] = value
+        if cache_payload:
+            _save_server_oauth_cache(storage, resolved_mcp_url, cache_payload)
+
     return config
+
+
+def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
+    return resolve_server_oauth_config_cached(server, storage=None)

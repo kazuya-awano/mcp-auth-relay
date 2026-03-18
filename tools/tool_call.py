@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from collections.abc import Generator
 from typing import Any
 
@@ -14,7 +15,7 @@ from tools.utils.auth import (
     get_access_token,
     get_servers,
     parse_mcp_servers_config,
-    resolve_server_oauth_config,
+    resolve_server_oauth_config_cached,
 )
 from tools.utils.mcp_client import McpAuthError, create_client
 
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 class MCPToolCall(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
+        started_at = time.perf_counter()
         tool_ref = (tool_parameters.get("tool_ref") or "").strip()
         if not tool_ref:
             yield self.create_text_message(
@@ -82,7 +84,12 @@ class MCPToolCall(Tool):
         if not target_server:
             yield self.create_text_message(f"Unknown server_id '{server_id}'.")
             return
-        resolved_server = resolve_server_oauth_config(target_server)
+        oauth_resolve_started_at = time.perf_counter()
+        resolved_server = resolve_server_oauth_config_cached(
+            target_server,
+            storage=self.session.storage,
+        )
+        oauth_resolve_ms = int((time.perf_counter() - oauth_resolve_started_at) * 1000)
         mcp_url = resolved_server.get("mcp_url")
         if not mcp_url:
             yield self.create_text_message(f"Missing mcp_url for server_id '{server_id}'.")
@@ -95,15 +102,31 @@ class MCPToolCall(Tool):
             headers=headers,
             timeout=credentials.get("timeout", 50),
         )
+        initialize_ms = 0
+        call_ms = 0
         try:
+            initialize_started_at = time.perf_counter()
             client.initialize()
+            initialize_ms = int((time.perf_counter() - initialize_started_at) * 1000)
+            call_started_at = time.perf_counter()
             content = client.call_tool(tool_name, arguments)
+            call_ms = int((time.perf_counter() - call_started_at) * 1000)
             yield self.create_json_message(
                 {
                     "ok": True,
                     "tool_ref": tool_ref,
                     "result": content,
                 }
+            )
+            total_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "mcp_tool_call timing server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s call_ms=%s total_ms=%s",
+                server_id,
+                tool_name,
+                oauth_resolve_ms,
+                initialize_ms,
+                call_ms,
+                total_ms,
             )
         except McpAuthError:
             state, code_verifier = create_state(self, mcp_url, oauth_cfg=resolved_server)
@@ -135,6 +158,15 @@ class MCPToolCall(Tool):
                         "message": "Authentication required but login URL is not configured.",
                     }
                 )
+            total_ms = int((time.perf_counter() - started_at) * 1000)
+            logger.info(
+                "mcp_tool_call auth_required server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s total_ms=%s",
+                server_id,
+                tool_name,
+                oauth_resolve_ms,
+                initialize_ms,
+                total_ms,
+            )
         except Exception as exc:
             logger.exception("Error calling MCP Server tool.")
             yield self.create_text_message(f"Error calling MCP Server tool: {exc}")
