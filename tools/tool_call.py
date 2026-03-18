@@ -11,13 +11,17 @@ from tools.utils.auth import (
     build_auth_headers,
     build_login_url,
     create_state,
+    delete_mcp_session_id,
     find_server_by_id,
     get_access_token,
+    get_mcp_session_id,
     get_servers,
+    get_user_key_candidates,
     parse_mcp_servers_config,
     resolve_server_oauth_config_cached,
+    set_mcp_session_id,
 )
-from tools.utils.mcp_client import McpAuthError, create_client
+from tools.utils.mcp_client import McpAuthError, McpSessionError, create_client
 
 logger = logging.getLogger(__name__)
 
@@ -97,20 +101,61 @@ class MCPToolCall(Tool):
 
         access_token = get_access_token(self, mcp_url)
         headers = build_auth_headers(access_token)
-        client = create_client(
-            mcp_url=mcp_url,
-            headers=headers,
-            timeout=credentials.get("timeout", 50),
+        storage = self.session.storage
+        user_candidates = get_user_key_candidates(self)
+        user_key = user_candidates[0] if user_candidates else "default_user"
+        cached_session_id = get_mcp_session_id(
+            storage,
+            user_key,
+            mcp_url,
+            access_token,
         )
+        session_reused = bool(cached_session_id)
+        session_retry = False
         initialize_ms = 0
         call_ms = 0
         try:
-            initialize_started_at = time.perf_counter()
-            client.initialize()
-            initialize_ms = int((time.perf_counter() - initialize_started_at) * 1000)
-            call_started_at = time.perf_counter()
-            content = client.call_tool(tool_name, arguments)
-            call_ms = int((time.perf_counter() - call_started_at) * 1000)
+            content: list[dict[str, Any]] = []
+            attempt = 0
+            while True:
+                attempt += 1
+                use_cached_session = bool(cached_session_id) and attempt == 1
+                client = create_client(
+                    mcp_url=mcp_url,
+                    headers=headers,
+                    timeout=credentials.get("timeout", 50),
+                    session_id=cached_session_id if use_cached_session else None,
+                )
+                try:
+                    if not use_cached_session:
+                        initialize_started_at = time.perf_counter()
+                        client.initialize()
+                        initialize_ms = int((time.perf_counter() - initialize_started_at) * 1000)
+                    call_started_at = time.perf_counter()
+                    content = client.call_tool(tool_name, arguments)
+                    call_ms = int((time.perf_counter() - call_started_at) * 1000)
+                    latest_session_id = client.get_session_id()
+                    if latest_session_id:
+                        set_mcp_session_id(
+                            storage,
+                            user_key,
+                            mcp_url,
+                            access_token,
+                            latest_session_id,
+                        )
+                    break
+                except McpSessionError:
+                    if use_cached_session:
+                        session_retry = True
+                        delete_mcp_session_id(storage, user_key, mcp_url, access_token)
+                        continue
+                    raise
+                finally:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+
             yield self.create_json_message(
                 {
                     "ok": True,
@@ -120,12 +165,14 @@ class MCPToolCall(Tool):
             )
             total_ms = int((time.perf_counter() - started_at) * 1000)
             logger.info(
-                "mcp_tool_call timing server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s call_ms=%s total_ms=%s",
+                "mcp_tool_call timing server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s call_ms=%s session_reused=%s session_retry=%s total_ms=%s",
                 server_id,
                 tool_name,
                 oauth_resolve_ms,
                 initialize_ms,
                 call_ms,
+                session_reused,
+                session_retry,
                 total_ms,
             )
         except McpAuthError:
@@ -160,18 +207,15 @@ class MCPToolCall(Tool):
                 )
             total_ms = int((time.perf_counter() - started_at) * 1000)
             logger.info(
-                "mcp_tool_call auth_required server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s total_ms=%s",
+                "mcp_tool_call auth_required server_id=%s tool=%s oauth_resolve_ms=%s initialize_ms=%s session_reused=%s session_retry=%s total_ms=%s",
                 server_id,
                 tool_name,
                 oauth_resolve_ms,
                 initialize_ms,
+                session_reused,
+                session_retry,
                 total_ms,
             )
         except Exception as exc:
             logger.exception("Error calling MCP Server tool.")
             yield self.create_text_message(f"Error calling MCP Server tool: {exc}")
-        finally:
-            try:
-                client.close()
-            except Exception:
-                pass
