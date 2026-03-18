@@ -1,20 +1,20 @@
 # Privacy Policy
 
-MCP Auth Relay stores OAuth tokens and temporary OAuth state in Dify plugin storage to call remote MCP servers on behalf of the user.
+MCP Auth Relay stores OAuth-related information in Dify plugin storage to authenticate users and call configured MCP servers on their behalf.
 
 Stored data:
 
-- Access tokens returned by upstream OAuth providers
-- Temporary OAuth state and PKCE verifier during the login flow
-- Cached MCP `tools/list` responses
+- OAuth credentials and temporary authorization state
+- OAuth configuration and session metadata required for OAuth/MCP flows
+- Cached responses used to reduce repeated MCP requests
 
 Data usage:
 
-- Tokens are used only to call the configured MCP servers.
-- Temporary OAuth state is deleted after callback handling or expiration.
-- Cached tool lists are used only to reduce repeated `tools/list` requests.
+- Stored OAuth-related information is used only for authentication and calls to configured MCP servers.
+- Temporary authorization state is deleted after callback handling or expiration.
+- Cached data is used only for reliability/performance optimization of repeated requests.
 
-The plugin does not send stored tokens to any service other than the configured MCP server and its OAuth endpoints.
+The plugin does not send stored OAuth-related information to any service other than the configured MCP servers and their OAuth endpoints.
 
 If you have questions about this Privacy Policy, please contact:
 - **Email:** [kazuya-awano@webfreak.jp]

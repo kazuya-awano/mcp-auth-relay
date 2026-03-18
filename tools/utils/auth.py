@@ -45,6 +45,12 @@ _TOKEN_INDEX_KEY = "token_index:v1"
 _TOOL_LIST_CACHE_INDEX_KEY = "tool_list_cache_index:v1"
 _TOOL_LIST_CACHE_PREFIX = "tool_list_cache:v1"
 _DEFAULT_TOOL_LIST_CACHE_TTL_SECONDS = 300
+_SERVER_OAUTH_CACHE_INDEX_KEY = "server_oauth_cache_index:v1"
+_SERVER_OAUTH_CACHE_PREFIX = "server_oauth_cache:v1"
+_DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS = 86400
+_MCP_SESSION_CACHE_INDEX_KEY = "mcp_session_cache_index:v1"
+_MCP_SESSION_CACHE_PREFIX = "mcp_session_cache:v1"
+_DEFAULT_MCP_SESSION_CACHE_TTL_SECONDS = 600
 
 
 def build_token_storage_key(user_id: str, mcp_url: str) -> str:
@@ -99,6 +105,16 @@ def _tool_list_cache_key(mcp_url: str) -> str:
     return f"{_TOOL_LIST_CACHE_PREFIX}:{_resource_key(mcp_url)}"
 
 
+def _server_oauth_cache_key(mcp_url: str) -> str:
+    return f"{_SERVER_OAUTH_CACHE_PREFIX}:{_resource_key(mcp_url)}"
+
+
+def _mcp_session_cache_key(user_id: str, mcp_url: str, access_token: str | None) -> str:
+    user_part = (user_id or "default_user").strip() or "default_user"
+    token_hash = hashlib.sha256((access_token or "").encode("utf-8")).hexdigest()[:24]
+    return f"{_MCP_SESSION_CACHE_PREFIX}:{user_part}:{_resource_key(mcp_url)}:{token_hash}"
+
+
 def _load_tool_list_cache_index(storage: Any) -> dict[str, str]:
     if not storage:
         return {}
@@ -131,6 +147,74 @@ def _add_tool_list_cache_index_entry(storage: Any, cache_key: str, mcp_url: str)
     index = _load_tool_list_cache_index(storage)
     index[cache_key] = _resource_key(mcp_url)
     _save_tool_list_cache_index(storage, index)
+
+
+def _load_mcp_session_cache_index(storage: Any) -> dict[str, str]:
+    if not storage:
+        return {}
+    try:
+        raw = storage.get(_MCP_SESSION_CACHE_INDEX_KEY)
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+    if isinstance(decoded, dict):
+        return {str(k): str(v) for k, v in decoded.items()}
+    if isinstance(decoded, list):
+        return {str(k): "" for k in decoded}
+    return {}
+
+
+def _save_mcp_session_cache_index(storage: Any, index: Mapping[str, str]) -> None:
+    if not storage:
+        return
+    storage.set(_MCP_SESSION_CACHE_INDEX_KEY, json.dumps(index).encode("utf-8"))
+
+
+def _add_mcp_session_cache_index_entry(storage: Any, cache_key: str, mcp_url: str) -> None:
+    if not storage or not cache_key:
+        return
+    index = _load_mcp_session_cache_index(storage)
+    index[cache_key] = _resource_key(mcp_url)
+    _save_mcp_session_cache_index(storage, index)
+
+
+def _load_server_oauth_cache_index(storage: Any) -> dict[str, str]:
+    if not storage:
+        return {}
+    try:
+        raw = storage.get(_SERVER_OAUTH_CACHE_INDEX_KEY)
+    except Exception:
+        return {}
+    if not raw:
+        return {}
+    try:
+        decoded = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+    if isinstance(decoded, dict):
+        return {str(k): str(v) for k, v in decoded.items()}
+    if isinstance(decoded, list):
+        return {str(k): "" for k in decoded}
+    return {}
+
+
+def _save_server_oauth_cache_index(storage: Any, index: Mapping[str, str]) -> None:
+    if not storage:
+        return
+    storage.set(_SERVER_OAUTH_CACHE_INDEX_KEY, json.dumps(index).encode("utf-8"))
+
+
+def _add_server_oauth_cache_index_entry(storage: Any, cache_key: str, mcp_url: str) -> None:
+    if not storage or not cache_key:
+        return
+    index = _load_server_oauth_cache_index(storage)
+    index[cache_key] = _resource_key(mcp_url)
+    _save_server_oauth_cache_index(storage, index)
 
 
 def _oauth_cfg_key(app_id: str) -> str:
@@ -396,6 +480,205 @@ def delete_tool_list_cache(storage: Any, mcp_url: str | None = None) -> int:
 
     _save_tool_list_cache_index(storage, index)
     return deleted
+
+
+def get_mcp_session_id(
+    storage: Any,
+    user_id: str,
+    mcp_url: str,
+    access_token: str | None,
+    max_age_seconds: int = _DEFAULT_MCP_SESSION_CACHE_TTL_SECONDS,
+) -> str | None:
+    if not storage:
+        return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return None
+    cache_key = _mcp_session_cache_key(user_id, resolved_mcp_url, access_token)
+    try:
+        raw = storage.get(cache_key)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    cached_at = payload.get("cached_at")
+    try:
+        cached_at_int = int(cached_at)
+    except Exception:
+        return None
+    if max_age_seconds > 0 and (int(time.time()) - cached_at_int) > max_age_seconds:
+        return None
+    session_id = (payload.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    return session_id
+
+
+def set_mcp_session_id(
+    storage: Any,
+    user_id: str,
+    mcp_url: str,
+    access_token: str | None,
+    session_id: str,
+) -> str | None:
+    if not storage:
+        return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    resolved_session_id = (session_id or "").strip()
+    if not resolved_mcp_url or not resolved_session_id:
+        return None
+    cache_key = _mcp_session_cache_key(user_id, resolved_mcp_url, access_token)
+    payload = {
+        "cached_at": int(time.time()),
+        "session_id": resolved_session_id,
+    }
+    storage.set(cache_key, json.dumps(payload).encode("utf-8"))
+    _add_mcp_session_cache_index_entry(storage, cache_key, resolved_mcp_url)
+    return cache_key
+
+
+def delete_mcp_session_id(
+    storage: Any,
+    user_id: str,
+    mcp_url: str,
+    access_token: str | None,
+) -> bool:
+    if not storage:
+        return False
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return False
+    cache_key = _mcp_session_cache_key(user_id, resolved_mcp_url, access_token)
+    deleted = False
+    try:
+        storage.delete(cache_key)
+        deleted = True
+    except Exception:
+        deleted = False
+    index = _load_mcp_session_cache_index(storage)
+    if cache_key in index:
+        index.pop(cache_key, None)
+        _save_mcp_session_cache_index(storage, index)
+    return deleted
+
+
+def delete_mcp_session_cache(storage: Any, mcp_url: str | None = None) -> int:
+    if not storage:
+        return 0
+    resource = _resource_key(mcp_url) if mcp_url else None
+    index = _load_mcp_session_cache_index(storage)
+    target_keys: list[str] = []
+    for cache_key, indexed_resource in index.items():
+        if resource and indexed_resource != resource:
+            continue
+        target_keys.append(cache_key)
+
+    deleted = 0
+    for cache_key in target_keys:
+        try:
+            storage.delete(cache_key)
+        except Exception:
+            continue
+        deleted += 1
+        index.pop(cache_key, None)
+    _save_mcp_session_cache_index(storage, index)
+    return deleted
+
+
+def delete_server_oauth_cache(storage: Any, mcp_url: str | None = None) -> int:
+    if not storage:
+        return 0
+    resource = _resource_key(mcp_url) if mcp_url else None
+    index = _load_server_oauth_cache_index(storage)
+    target_keys: list[str] = []
+    for cache_key, indexed_resource in index.items():
+        if resource and indexed_resource != resource:
+            continue
+        target_keys.append(cache_key)
+
+    deleted = 0
+    for cache_key in target_keys:
+        try:
+            storage.delete(cache_key)
+        except Exception:
+            continue
+        deleted += 1
+        index.pop(cache_key, None)
+
+    # Best effort: delete deterministic key even if old index was missing.
+    if mcp_url:
+        direct_key = _server_oauth_cache_key(mcp_url)
+        if direct_key not in target_keys:
+            try:
+                storage.delete(direct_key)
+                deleted += 1
+            except Exception:
+                pass
+            index.pop(direct_key, None)
+
+    _save_server_oauth_cache_index(storage, index)
+    return deleted
+
+
+def _load_server_oauth_cache(
+    storage: Any,
+    mcp_url: str,
+    max_age_seconds: int = _DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS,
+) -> dict[str, Any] | None:
+    if not storage:
+        return None
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return None
+    cache_key = _server_oauth_cache_key(resolved_mcp_url)
+    try:
+        raw = storage.get(cache_key)
+    except Exception:
+        return None
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    cached_at = payload.get("cached_at")
+    try:
+        cached_at_int = int(cached_at)
+    except Exception:
+        return None
+    if max_age_seconds > 0 and (int(time.time()) - cached_at_int) > max_age_seconds:
+        return None
+    config = payload.get("config")
+    if not isinstance(config, Mapping):
+        return None
+    return dict(config)
+
+
+def _save_server_oauth_cache(
+    storage: Any,
+    mcp_url: str,
+    config: Mapping[str, Any],
+) -> None:
+    if not storage:
+        return
+    resolved_mcp_url = normalize_mcp_url(mcp_url)
+    if not resolved_mcp_url:
+        return
+    cache_key = _server_oauth_cache_key(resolved_mcp_url)
+    payload = {
+        "cached_at": int(time.time()),
+        "config": dict(config),
+    }
+    storage.set(cache_key, json.dumps(payload).encode("utf-8"))
+    _add_server_oauth_cache_index_entry(storage, cache_key, resolved_mcp_url)
 
 
 def normalize_token_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -876,19 +1159,48 @@ def _resolve_token_auth_method(
     return "none"
 
 
-def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
+def resolve_server_oauth_config_cached(
+    server: Mapping[str, Any],
+    storage: Any = None,
+    max_cache_age_seconds: int = _DEFAULT_SERVER_OAUTH_CACHE_TTL_SECONDS,
+) -> dict[str, Any]:
     config = dict(server or {})
     config["mcp_url"] = normalize_mcp_url(config.get("mcp_url"))
+    resolved_mcp_url = config.get("mcp_url") or ""
+
     discovered_methods: list[str] = []
     registered: Mapping[str, Any] | None = None
+    cached_cfg = _load_server_oauth_cache(
+        storage,
+        resolved_mcp_url,
+        max_age_seconds=max_cache_age_seconds,
+    )
+    if cached_cfg:
+        for key in (
+            "authorization_url",
+            "token_url",
+            "registration_endpoint",
+            "client_id",
+            "client_secret",
+            "token_endpoint_auth_method",
+        ):
+            if not config.get(key) and cached_cfg.get(key):
+                config[key] = cached_cfg.get(key)
+        methods = cached_cfg.get("token_endpoint_auth_methods_supported") or []
+        if isinstance(methods, list):
+            discovered_methods = [str(m) for m in methods if m]
+
     if not config.get("authorization_url") or not config.get("token_url"):
-        discovered = _discover_from_mcp_url(config.get("mcp_url") or "") or {}
+        discovered = _discover_from_mcp_url(resolved_mcp_url) or {}
         config["authorization_url"] = config.get("authorization_url") or discovered.get("authorization_url")
         config["token_url"] = config.get("token_url") or discovered.get("token_url")
-        config["registration_endpoint"] = discovered.get("registration_endpoint")
+        config["registration_endpoint"] = config.get("registration_endpoint") or discovered.get(
+            "registration_endpoint"
+        )
         methods = discovered.get("token_endpoint_auth_methods_supported") or []
         if isinstance(methods, list):
             discovered_methods = [str(m) for m in methods if m]
+            config["token_endpoint_auth_methods_supported"] = discovered_methods
 
     if not config.get("client_id") and config.get("registration_endpoint"):
         registered = _register_client(
@@ -909,4 +1221,27 @@ def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
     config["token_endpoint_auth_method"] = token_auth_method
     if token_auth_method == "none":
         config.pop("client_secret", None)
+
+    if storage and resolved_mcp_url:
+        cache_payload: dict[str, Any] = {}
+        for key in (
+            "authorization_url",
+            "token_url",
+            "registration_endpoint",
+            "client_id",
+            "client_secret",
+            "token_endpoint_auth_method",
+            "token_endpoint_auth_methods_supported",
+        ):
+            value = config.get(key)
+            if value in (None, "", []):
+                continue
+            cache_payload[key] = value
+        if cache_payload:
+            _save_server_oauth_cache(storage, resolved_mcp_url, cache_payload)
+
     return config
+
+
+def resolve_server_oauth_config(server: Mapping[str, Any]) -> dict[str, Any]:
+    return resolve_server_oauth_config_cached(server, storage=None)

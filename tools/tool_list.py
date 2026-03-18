@@ -1,4 +1,3 @@
-import logging
 import json
 from collections.abc import Generator
 from typing import Any
@@ -10,17 +9,19 @@ from tools.utils.auth import (
     build_auth_headers,
     build_login_url,
     create_state,
+    delete_mcp_session_id,
     find_server_by_id,
     get_access_token,
+    get_mcp_session_id,
     get_tool_list_cache,
     get_servers,
+    get_user_key_candidates,
     parse_mcp_servers_config,
-    resolve_server_oauth_config,
+    resolve_server_oauth_config_cached,
+    set_mcp_session_id,
     set_tool_list_cache,
 )
-from tools.utils.mcp_client import McpAuthError, create_client
-
-logger = logging.getLogger(__name__)
+from tools.utils.mcp_client import McpAuthError, McpSessionError, create_client
 
 
 def _resolve_cache_ttl_seconds(credentials: dict[str, Any]) -> int:
@@ -109,12 +110,13 @@ class MCPToolList(Tool):
         server_results: list[dict[str, Any]] = []
         storage = self.session.storage
         cache_ttl_seconds = _resolve_cache_ttl_seconds(credentials)
+        user_candidates = get_user_key_candidates(self)
+        user_key = user_candidates[0] if user_candidates else "default_user"
 
         for server in target_servers:
-            resolved_server = resolve_server_oauth_config(server)
-            mcp_url = resolved_server.get("mcp_url")
-            current_server_id = resolved_server.get("server_id")
-            current_server_description = resolved_server.get("description") or ""
+            mcp_url = server.get("mcp_url")
+            current_server_id = server.get("server_id")
+            current_server_description = server.get("description") or ""
             if not mcp_url:
                 errors.append({"server_id": current_server_id, "error": "Missing mcp_url"})
                 continue
@@ -133,18 +135,68 @@ class MCPToolList(Tool):
                 source = "live"
                 access_token = get_access_token(self, mcp_url)
                 headers = build_auth_headers(access_token)
-                client = create_client(
-                    mcp_url=mcp_url,
-                    headers=headers,
-                    timeout=credentials.get("timeout", 50),
+                cached_session_id = get_mcp_session_id(
+                    storage,
+                    user_key,
+                    mcp_url,
+                    access_token,
                 )
                 try:
-                    client.initialize()
-                    tools = client.list_tools()
+                    tools: list[dict[str, Any]] = []
+                    attempt = 0
+                    while True:
+                        attempt += 1
+                        use_cached_session = bool(cached_session_id) and attempt == 1
+                        client = create_client(
+                            mcp_url=mcp_url,
+                            headers=headers,
+                            timeout=credentials.get("timeout", 50),
+                            session_id=cached_session_id if use_cached_session else None,
+                        )
+                        try:
+                            if not use_cached_session:
+                                client.initialize()
+                            tools = client.list_tools()
+                            latest_session_id = client.get_session_id()
+                            if latest_session_id and latest_session_id != cached_session_id:
+                                set_mcp_session_id(
+                                    storage,
+                                    user_key,
+                                    mcp_url,
+                                    access_token,
+                                    latest_session_id,
+                                )
+                                cached_session_id = latest_session_id
+                            break
+                        except McpSessionError:
+                            if use_cached_session:
+                                delete_mcp_session_id(storage, user_key, mcp_url, access_token)
+                                cached_session_id = None
+                                continue
+                            raise
+                        finally:
+                            try:
+                                client.close()
+                            except Exception:
+                                pass
                     if cache_ttl_seconds > 0:
                         set_tool_list_cache(storage, mcp_url, tools)
                 except McpAuthError:
-                    state, code_verifier = create_state(self, mcp_url, oauth_cfg=resolved_server)
+                    resolved_server = dict(server)
+                    try:
+                        resolved_server = resolve_server_oauth_config_cached(
+                            server,
+                            storage=storage,
+                        )
+                    except Exception:
+                        pass
+
+                    resolved_mcp_url = resolved_server.get("mcp_url") or mcp_url
+                    state, code_verifier = create_state(
+                        self,
+                        resolved_mcp_url,
+                        oauth_cfg=resolved_server,
+                    )
                     login_url = None
                     if state and code_verifier:
                         login_url = build_login_url(
@@ -167,14 +219,8 @@ class MCPToolList(Tool):
                     )
                     continue
                 except Exception as exc:
-                    logger.exception("Error listing MCP tools. server_id=%s", current_server_id)
                     errors.append({"server_id": current_server_id, "error": str(exc)})
                     continue
-                finally:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
 
             tool_count = 0
             for tool in tools:
