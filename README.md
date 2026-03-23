@@ -1,6 +1,6 @@
 # MCP Auth Relay
 
-MCP Auth Relay lets Dify use remote MCP servers through two tools and two endpoints. It stores OAuth tokens per user, receives the OAuth callback inside the plugin, and exposes MCP tools through a stable Dify wrapper.
+MCP Auth Relay lets Dify use remote MCP servers through three tools and two endpoints. It stores OAuth tokens per user, receives the OAuth callback inside the plugin, and exposes MCP tools through a stable Dify wrapper.
 
 **Author:** [kazuya-awano](https://github.com/kazuya-awano)  
 **Github Repository:** https://github.com/kazuya-awano/mcp-auth-relay
@@ -9,6 +9,7 @@ MCP Auth Relay lets Dify use remote MCP servers through two tools and two endpoi
 
 - `mcp_tool_list`: lists MCP tools and returns `tool_ref` values in `server_id::tool_name` format
 - `mcp_tool_call`: executes an MCP tool by `tool_ref` with JSON input
+- `mcp_auth_status`: returns current auth status and login URL per server, with optional forced re-auth URL issuance
 - `GET /callback`: exchanges OAuth authorization code for access token
 - `GET /logout`: clears stored tokens and cached tool lists
 - Per-user token storage
@@ -23,7 +24,7 @@ MCP Auth Relay lets Dify use remote MCP servers through two tools and two endpoi
 4. Open the provider settings for `MCP Auth Relay`.
 5. Build `MCP Servers Config JSON` with the issued callback URL in each server's `redirect_uri`.
 6. Optionally set `Tool List Cache TTL Seconds`.
-7. In your Agent or Workflow, add both `mcp_tool_list` and `mcp_tool_call`.
+7. In your Agent or Workflow, add `mcp_auth_status`, `mcp_tool_list`, and `mcp_tool_call`.
 
 ### Step 1: Install
 
@@ -78,20 +79,30 @@ Notes:
 
 ### Step 4: Add tools to the Agent
 
-Add both tools to the Agent or Workflow:
+Add these tools to the Agent or Workflow:
 
+- `mcp_auth_status`
 - `mcp_tool_list`
 - `mcp_tool_call`
 
-`mcp_tool_list` is used to discover available MCP tools and login URLs. `mcp_tool_call` is then used to execute the selected MCP tool by `tool_ref`.
+`mcp_auth_status` is used to branch workflow logic by current auth state and login URL. `mcp_tool_list` discovers available MCP tools. `mcp_tool_call` executes the selected MCP tool by `tool_ref`.
 
 ## Usage Flow
 
-1. Call `mcp_tool_list`.
-2. Prefer `server_id` or `server_ids` when you already know the likely target server.
-3. If the response includes `auth_required`, open the returned `login_url` and complete sign-in.
-4. Retry `mcp_tool_list` if needed.
+1. Call `mcp_auth_status` first.
+2. If any server status is `need_auth`, open `login_url` and complete sign-in.
+3. Optionally set `force_reauth=true` when you need account switching and a fresh login URL.
+4. Call `mcp_tool_list`.
 5. Call `mcp_tool_call` with the returned `tool_ref` and input JSON.
+
+Example `mcp_auth_status` input:
+
+```json
+{
+  "server_id": "notion",
+  "force_reauth": "true"
+}
+```
 
 Example `mcp_tool_list` input:
 
