@@ -1,0 +1,49 @@
+identity:
+  name: "mcp_auth_status"
+  author: "kazuya-awano"
+  label:
+    en_US: "Check Auth Status"
+    zh_Hans: "Check Auth Status"
+    pt_BR: "Check Auth Status"
+    ja_JP: "認証状態確認"
+description:
+  human:
+    en_US: "Check current OAuth state and optionally issue a fresh login URL."
+    zh_Hans: "Check current OAuth state and optionally issue a fresh login URL."
+    pt_BR: "Check current OAuth state and optionally issue a fresh login URL."
+    ja_JP: "現在の OAuth 状態を確認し、必要に応じて新しい認証 URL を発行します。"
+  llm: "Check authentication status per configured server and return login_url when needed. Set force_reauth=true to issue a fresh login_url even when already authorized."
+parameters:
+  - name: server_id
+    type: string
+    label:
+      en_US: Server ID
+      ja_JP: サーバー ID
+    human_description:
+      en_US: "Optional single server ID to check."
+      ja_JP: "対象を1サーバーに絞る任意の ID です。"
+    llm_description: "Optional single server identifier to narrow auth status checks."
+    form: llm
+  - name: server_ids
+    type: string
+    label:
+      en_US: Server IDs
+      ja_JP: サーバー ID 一覧
+    human_description:
+      en_US: "Optional JSON string array or comma-separated server IDs."
+      ja_JP: "複数サーバーを対象にする JSON 配列文字列またはカンマ区切り文字列です。"
+    llm_description: 'Optional server ID set used to narrow auth status checks. Example: ["notion","msdocs"]'
+    form: llm
+  - name: force_reauth
+    type: string
+    label:
+      en_US: Force Reauth
+      ja_JP: 再認証を強制
+    human_description:
+      en_US: "true/false. true issues a fresh login_url even when currently authorized."
+      ja_JP: "true/false。true で認証済みでも毎回新しい login_url を発行します。"
+    llm_description: "Optional boolean-like value (true/false). When true, always return a fresh login_url for re-authentication."
+    form: llm
+extra:
+  python:
+    source: tools/auth_status.py

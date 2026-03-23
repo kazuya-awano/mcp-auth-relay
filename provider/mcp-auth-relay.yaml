@@ -5,8 +5,8 @@ identity:
     en_US: "MCP Auth Relay"
     ja_JP: "MCP Auth Relay"
   description:
-    en_US: "Relay remote MCP tools with per-user OAuth. Use mcp_tool_list to inspect tools and mcp_tool_call to execute tools by tool_ref."
-    ja_JP: "ユーザー単位 OAuth でリモート MCP ツールを中継します。mcp_tool_list でツール確認、mcp_tool_call で実行します。"
+    en_US: "Relay remote MCP tools with per-user OAuth. Use mcp_auth_status for auth state/login URL, mcp_tool_list to inspect tools, and mcp_tool_call to execute by tool_ref."
+    ja_JP: "ユーザー単位 OAuth でリモート MCP ツールを中継します。mcp_auth_status で認証状態/認証URL、mcp_tool_list でツール確認、mcp_tool_call で実行します。"
   icon: "icon.svg"
   tags:
     - "utilities"
@@ -35,6 +35,7 @@ credentials_for_provider:
       en_US: "Optional cache TTL for tools/list per MCP server. 0 or negative disables cache."
       ja_JP: "MCP サーバーごとの tools/list キャッシュ TTL です。0 以下でキャッシュ無効です。"
 tools:
+  - tools/auth_status.yaml
   - tools/tool_list.yaml
   - tools/tool_call.yaml
 extra:
