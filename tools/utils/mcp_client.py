@@ -3,6 +3,8 @@ from typing import Any
 
 import httpx
 
+from tools.utils.debug import debug_event, fingerprint
+
 
 class McpError(Exception):
     pass
@@ -53,16 +55,47 @@ class McpStreamableHttpClient:
             headers["Mcp-Session-Id"] = self._session_id
         headers["Mcp-Protocol-Version"] = self._protocol_version
 
-        response = self._client.post(
-            self.url,
-            json=payload,
-            headers=headers,
-            timeout=httpx.Timeout(self.timeout),
-            follow_redirects=True,
+        debug_event("mcp_request", method=payload.get("method"),
+                    resource_hash=fingerprint(self.url.strip().rstrip("/")),
+                    has_authorization=bool(headers.get("Authorization")), has_session=bool(self._session_id))
+        try:
+            response = self._client.post(
+                self.url,
+                json=payload,
+                headers=headers,
+                timeout=httpx.Timeout(self.timeout),
+                follow_redirects=True,
+            )
+        except httpx.HTTPError as exc:
+            debug_event("mcp_transport_error", method=payload.get("method"), error_type=type(exc).__name__)
+            raise
+        challenge = response.headers.get("www-authenticate", "").lower()
+        debug_event(
+            "mcp_response", method=payload.get("method"), status_code=response.status_code,
+            resource_hash=fingerprint(self.url.strip().rstrip("/")), has_authorization=bool(headers.get("Authorization")),
+            final_has_authorization=bool(response.request.headers.get("Authorization")),
+            has_session=bool(self._session_id), redirect_statuses=[r.status_code for r in response.history],
+            has_www_authenticate=bool(challenge),
+            invalid_token="invalid_token" in challenge, insufficient_scope="insufficient_scope" in challenge,
         )
         if response.status_code in {401, 403}:
             raise McpAuthError(f"MCP auth error: {response.status_code} {response.reason_phrase}")
         if not response.is_success:
+            try:
+                error = response.json().get("error")
+            except (ValueError, AttributeError):
+                error = None
+            oauth_errors = {
+                "server_error", "invalid_token", "invalid_request", "insufficient_scope",
+                "invalid_client", "invalid_grant", "temporarily_unavailable", "unauthorized_client",
+            }
+            rpc_code = error.get("code") if isinstance(error, dict) else None
+            debug_event(
+                "mcp_http_error", method=payload.get("method"), status_code=response.status_code,
+                resource_hash=fingerprint(self.url.strip().rstrip("/")),
+                oauth_error=error if isinstance(error, str) and error in oauth_errors else None,
+                rpc_error_code=rpc_code if isinstance(rpc_code, int) else None,
+            )
             error_message = (response.text or "").strip()
             if self._looks_like_session_error(
                 status_code=response.status_code,
@@ -129,6 +162,11 @@ class McpStreamableHttpClient:
         if error is None:
             return
         message = self._extract_error_message(error)
+        error_code = error.get("code") if isinstance(error, dict) else None
+        debug_event("mcp_rpc_error", method=method_name,
+                    error_code=error_code if isinstance(error_code, int) else None,
+                    error_message_hash=fingerprint(message),
+                    session_error=self._looks_like_session_error(status_code=400, message=message))
         if self._looks_like_session_error(status_code=400, message=message):
             raise McpSessionError(f"MCP {method_name} session error: {error}")
         raise McpError(f"MCP {method_name} error: {error}")
@@ -174,6 +212,10 @@ class McpStreamableHttpClient:
         }
         response = self._send(request)
         self._raise_if_rpc_error("tools/call", response)
+        result = response.get("result", {})
+        debug_event("mcp_tool_result", is_error=bool(result.get("isError")),
+                    has_structured_content="structuredContent" in result,
+                    content_count=len(result.get("content", [])))
         return response.get("result", {}).get("content", [])
 
 

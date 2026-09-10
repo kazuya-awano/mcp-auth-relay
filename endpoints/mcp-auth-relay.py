@@ -6,6 +6,7 @@ import httpx
 from werkzeug import Request, Response
 
 from dify_plugin import Endpoint
+from tools.utils.debug import debug_event, fingerprint, identity_context
 from tools.utils.auth import (
     delete_state,
     is_state_expired,
@@ -28,11 +29,15 @@ class McpAuthRelayEndpoint(Endpoint):
 
         code = (args.get("code") or "").strip()
         state = (args.get("state") or "").strip()
+        debug_event("oauth_callback_received", state_hash=fingerprint(state), has_code=bool(code),
+                    **identity_context(self))
         if not code or not state:
             return Response("Missing code or state", status=400, content_type="text/plain")
 
         storage = self.session.storage
         state_payload = resolve_state(storage, state)
+        debug_event("oauth_callback_state", state_hash=fingerprint(state), found=bool(state_payload),
+                    expired=is_state_expired(state_payload) if state_payload else None)
         if not state_payload:
             return Response("Invalid state", status=400, content_type="text/plain")
         if is_state_expired(state_payload):
@@ -41,6 +46,8 @@ class McpAuthRelayEndpoint(Endpoint):
 
         user_key = state_payload.get("user_id")
         state_mcp_url = normalize_mcp_url(state_payload.get("mcp_url"))
+        debug_event("oauth_callback_identity", state_hash=fingerprint(state), user_hash=fingerprint(user_key),
+                    resource_hash=fingerprint(state_mcp_url))
         if not user_key:
             return Response("Invalid user key", status=400, content_type="text/plain")
         if not state_mcp_url:
@@ -74,8 +81,10 @@ class McpAuthRelayEndpoint(Endpoint):
         try:
             response = httpx.post(token_url, data=data, timeout=10)
         except Exception as exc:
+            debug_event("oauth_token_exchange_error", state_hash=fingerprint(state), error_type=type(exc).__name__)
             return Response(f"Token request failed: {exc}", status=502, content_type="text/plain")
 
+        debug_event("oauth_token_exchange_response", state_hash=fingerprint(state), status_code=response.status_code)
         if response.status_code >= 400:
             error_text = (response.text or "").strip()
             if len(error_text) > 400:
@@ -98,6 +107,9 @@ class McpAuthRelayEndpoint(Endpoint):
         if not token_payload and response.text:
             token_payload = {"access_token": response.text}
 
+        debug_event("oauth_token_scope", state_hash=fingerprint(state),
+                    scope_returned="scope" in token_payload,
+                    has_scope=bool(token_payload.get("scope")))
         token_payload = normalize_token_payload(token_payload)
         if not token_payload.get("access_token"):
             return Response(
@@ -107,6 +119,7 @@ class McpAuthRelayEndpoint(Endpoint):
             )
         set_token_payload(storage, user_key, state_mcp_url, token_payload)
         delete_state(storage, state)
+        debug_event("oauth_callback_complete", state_hash=fingerprint(state), user_hash=fingerprint(user_key))
 
         server_url = html.escape(state_mcp_url)
         html_content = f"""

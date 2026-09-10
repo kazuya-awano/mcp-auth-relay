@@ -4,6 +4,7 @@ from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
+from tools.utils.debug import debug_event, debug_server_config, fingerprint, identity_context
 
 from tools.utils.auth import (
     build_login_url,
@@ -72,6 +73,7 @@ def _parse_force_reauth(tool_parameters: dict[str, Any]) -> tuple[bool, str | No
 class MCPAuthStatus(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
         force_reauth, force_reauth_error = _parse_force_reauth(tool_parameters)
+        debug_event("tool_invoke", force_reauth=force_reauth, **identity_context(self))
         if force_reauth_error:
             yield self.create_text_message(force_reauth_error)
             return
@@ -79,6 +81,7 @@ class MCPAuthStatus(Tool):
         credentials = self.runtime.credentials or {}
         try:
             parsed_config = parse_mcp_servers_config(credentials)
+            debug_server_config(self, parsed_config)
         except ValueError as exc:
             yield self.create_text_message(str(exc))
             return
@@ -151,6 +154,9 @@ class MCPAuthStatus(Tool):
                 authorized_server_ids.append(server_id)
             else:
                 need_auth_server_ids.append(server_id)
+
+            debug_event("auth_status_result", resource_hash=fingerprint(mcp_url), status=status,
+                        force_reauth=force_reauth, login_url_issued=bool(login_url), **identity_context(self))
 
             if status == "need_auth":
                 message = (

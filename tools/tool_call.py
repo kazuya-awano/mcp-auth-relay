@@ -4,6 +4,7 @@ from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
+from tools.utils.debug import debug_event, debug_server_config, identity_context
 
 from tools.utils.auth import (
     build_auth_headers,
@@ -24,6 +25,7 @@ from tools.utils.mcp_client import McpAuthError, McpSessionError, create_client
 
 class MCPToolCall(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
+        debug_event("tool_invoke", **identity_context(self))
         tool_ref = (tool_parameters.get("tool_ref") or "").strip()
         if not tool_ref:
             yield self.create_text_message(
@@ -70,6 +72,7 @@ class MCPToolCall(Tool):
         credentials = self.runtime.credentials or {}
         try:
             parsed_config = parse_mcp_servers_config(credentials)
+            debug_server_config(self, parsed_config)
         except ValueError as exc:
             yield self.create_text_message(str(exc))
             return
@@ -146,6 +149,7 @@ class MCPToolCall(Tool):
                 }
             )
         except McpAuthError:
+            debug_event("reauth_required", had_access_token=bool(access_token), **identity_context(self))
             resolved_server = dict(target_server)
             try:
                 resolved_server = resolve_server_oauth_config_cached(
@@ -186,4 +190,5 @@ class MCPToolCall(Tool):
                     }
                 )
         except Exception as exc:
+            debug_event("tool_error", error_type=type(exc).__name__, **identity_context(self))
             yield self.create_text_message(f"Error calling MCP Server tool: {exc}")

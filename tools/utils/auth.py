@@ -10,6 +10,8 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 
+from tools.utils.debug import debug_event, fingerprint, identity_context
+
 
 def _get_storage(obj: Any):
     if not obj:
@@ -323,27 +325,46 @@ def get_user_key_candidates(runtime: Any) -> list[str]:
 def get_access_token(runtime: Any, mcp_url: str | None = None) -> str | None:
     storage = _get_storage(runtime)
     if not storage:
+        debug_event("token_lookup_unavailable", reason="no_storage", **identity_context(runtime))
         return None
     resolved_mcp_url = normalize_mcp_url(mcp_url) or _get_mcp_url(runtime)
     if not resolved_mcp_url:
+        debug_event("token_lookup_unavailable", reason="no_mcp_url", **identity_context(runtime))
         return None
     now = int(time.time())
+    debug_event(
+        "token_lookup_start", resource_hash=_resource_key(resolved_mcp_url),
+        user_hashes=[fingerprint(key) for key in _collect_user_key_candidates(runtime)],
+        **identity_context(runtime),
+    )
     records: list[dict[str, Any]] = []
     for user_key in _collect_user_key_candidates(runtime):
         try:
             raw = storage.get(build_token_storage_key(user_key, resolved_mcp_url))
-        except Exception:
+        except Exception as exc:
+            debug_event("token_storage_read_error", user_hash=fingerprint(user_key),
+                        resource_hash=_resource_key(resolved_mcp_url), error_type=type(exc).__name__)
             raw = None
         record = _read_token_record(raw)
         if not record:
+            debug_event("token_lookup_miss", user_hash=fingerprint(user_key),
+                        resource_hash=_resource_key(resolved_mcp_url), stored_value_present=bool(raw))
             continue
         expires_at = record.get("expires_at")
+        debug_event("token_lookup_record", user_hash=fingerprint(user_key),
+                    resource_hash=_resource_key(resolved_mcp_url), obtained_at=record.get("obtained_at"),
+                    expires_at=expires_at,
+                    expires_in_seconds=expires_at - now if isinstance(expires_at, int) else None,
+                    usable=not isinstance(expires_at, int) or expires_at > now + 30)
         if isinstance(expires_at, int) and expires_at <= (now + 30):
             continue
         records.append(record)
     if not records:
+        debug_event("token_lookup_result", resource_hash=_resource_key(resolved_mcp_url), found=False)
         return None
     best = sorted(records, key=lambda item: int(item.get("obtained_at") or 0), reverse=True)[0]
+    debug_event("token_lookup_result", resource_hash=_resource_key(resolved_mcp_url), found=True,
+                obtained_at=best.get("obtained_at"))
     return best.get("access_token")
 
 
@@ -367,6 +388,10 @@ def set_token_payload(
     resolved_mcp_url = normalize_mcp_url(mcp_url)
     token_key = build_token_storage_key(user_id, resolved_mcp_url)
     storage.set(token_key, json.dumps(dict(token_payload)).encode("utf-8"))
+    debug_event("token_saved", user_hash=fingerprint(user_id), resource_hash=_resource_key(resolved_mcp_url),
+                obtained_at=token_payload.get("obtained_at"), expires_at=token_payload.get("expires_at"),
+                has_access_token=bool(token_payload.get("access_token")),
+                has_refresh_token=bool(token_payload.get("refresh_token")))
     _add_token_index_entry(storage, token_key, resolved_mcp_url)
     return token_key
 
@@ -770,7 +795,8 @@ def _fetch_json(url: str) -> dict[str, Any] | None:
     if response.status_code >= 400:
         return None
     try:
-        return response.json()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else None
     except Exception:
         return None
 
@@ -779,7 +805,16 @@ def _discover_from_mcp_url(mcp_url: str) -> dict[str, Any] | None:
     origin = _origin_from_url(mcp_url)
     if not origin:
         return None
-    resource_meta = _fetch_json(f"{origin}/.well-known/oauth-protected-resource") or {}
+    # RFC 9728 inserts the well-known segment before the resource's path.
+    # freee, for example, serves metadata at .../oauth-protected-resource/mcp.
+    resource_path = urlparse(mcp_url).path.rstrip("/")
+    resource_meta = {}
+    if resource_path:
+        resource_meta = _fetch_json(
+            f"{origin}/.well-known/oauth-protected-resource{resource_path}"
+        ) or {}
+    if not resource_meta:
+        resource_meta = _fetch_json(f"{origin}/.well-known/oauth-protected-resource") or {}
     auth_servers = resource_meta.get("authorization_servers") or []
     candidates: list[str] = []
 
@@ -811,6 +846,15 @@ def _discover_from_mcp_url(mcp_url: str) -> dict[str, Any] | None:
         if auth_meta:
             break
 
+    # Scope names belong to this resource. Do not request every scope exposed
+    # by a shared authorization server, which may cover unrelated resources.
+    scopes = resource_meta.get("scopes_supported")
+    supported_scopes = []
+    if isinstance(scopes, list):
+        for scope in scopes:
+            if isinstance(scope, str) and scope.strip() and scope.strip() not in supported_scopes:
+                supported_scopes.append(scope.strip())
+
     return {
         "authorization_url": auth_meta.get("authorization_endpoint"),
         "token_url": auth_meta.get("token_endpoint"),
@@ -819,6 +863,9 @@ def _discover_from_mcp_url(mcp_url: str) -> dict[str, Any] | None:
             "token_endpoint_auth_methods_supported"
         )
         or [],
+        # None means resource metadata was unavailable; retry on the next
+        # authorization attempt instead of caching a transient failure for a day.
+        "scope": " ".join(supported_scopes) if resource_meta else None,
     }
 
 
@@ -869,10 +916,11 @@ def ensure_oauth_config(runtime: Any, credentials: Mapping[str, Any]) -> Mapping
     if credentials.get("client_secret"):
         config["client_secret"] = credentials.get("client_secret")
 
-    if not config.get("authorization_url") or not config.get("token_url"):
+    if not config.get("authorization_url") or not config.get("token_url") or not config.get("scope"):
         discovered = _discover_from_mcp_url(config.get("mcp_url") or "") or {}
         config["authorization_url"] = config.get("authorization_url") or discovered.get("authorization_url")
         config["token_url"] = config.get("token_url") or discovered.get("token_url")
+        config["scope"] = config.get("scope") or discovered.get("scope")
         config["registration_endpoint"] = discovered.get("registration_endpoint")
 
     if not config.get("client_id") and config.get("registration_endpoint"):
@@ -895,10 +943,11 @@ def ensure_oauth_config_from_storage(storage: Any, app_id: str) -> Mapping[str, 
     config = dict(load_oauth_config(storage, app_id) or {})
     if not config:
         return {}
-    if not config.get("authorization_url") or not config.get("token_url"):
+    if not config.get("authorization_url") or not config.get("token_url") or not config.get("scope"):
         discovered = _discover_from_mcp_url(config.get("mcp_url") or "") or {}
         config["authorization_url"] = config.get("authorization_url") or discovered.get("authorization_url")
         config["token_url"] = config.get("token_url") or discovered.get("token_url")
+        config["scope"] = config.get("scope") or discovered.get("scope")
         config["registration_endpoint"] = discovered.get("registration_endpoint")
     if not config.get("client_id") and config.get("registration_endpoint"):
         registered = _register_client(
@@ -949,6 +998,9 @@ def create_state(
             "redirect_uri": oauth_cfg.get("redirect_uri"),
         }
     storage.set(_state_key(state), json.dumps(payload).encode("utf-8"))
+    debug_event("oauth_state_created", state_hash=fingerprint(state),
+                user_hash=fingerprint(payload["user_id"]), resource_hash=_resource_key(resolved_mcp_url),
+                **identity_context(runtime))
     return (state, code_verifier)
 
 
@@ -1167,6 +1219,8 @@ def resolve_server_oauth_config_cached(
     config = dict(server or {})
     config["mcp_url"] = normalize_mcp_url(config.get("mcp_url"))
     resolved_mcp_url = config.get("mcp_url") or ""
+    configured_scope = (config.get("scope") or "").strip()
+    discovered_scope: str | None = None
 
     discovered_methods: list[str] = []
     registered: Mapping[str, Any] | None = None
@@ -1176,6 +1230,8 @@ def resolve_server_oauth_config_cached(
         max_age_seconds=max_cache_age_seconds,
     )
     if cached_cfg:
+        if isinstance(cached_cfg.get("discovered_scope"), str):
+            discovered_scope = cached_cfg["discovered_scope"]
         for key in (
             "authorization_url",
             "token_url",
@@ -1190,7 +1246,13 @@ def resolve_server_oauth_config_cached(
         if isinstance(methods, list):
             discovered_methods = [str(m) for m in methods if m]
 
-    if not config.get("authorization_url") or not config.get("token_url"):
+    # Old cache entries already contain endpoints and a DCR client, but lack
+    # scope metadata. Discover that once without replacing the registered client.
+    if (
+        not config.get("authorization_url")
+        or not config.get("token_url")
+        or (not configured_scope and discovered_scope is None)
+    ):
         discovered = _discover_from_mcp_url(resolved_mcp_url) or {}
         config["authorization_url"] = config.get("authorization_url") or discovered.get("authorization_url")
         config["token_url"] = config.get("token_url") or discovered.get("token_url")
@@ -1201,6 +1263,15 @@ def resolve_server_oauth_config_cached(
         if isinstance(methods, list):
             discovered_methods = [str(m) for m in methods if m]
             config["token_endpoint_auth_methods_supported"] = discovered_methods
+        if isinstance(discovered.get("scope"), str):
+            discovered_scope = discovered["scope"]
+
+    config["scope"] = configured_scope or discovered_scope or ""
+    debug_event(
+        "oauth_scope_selected", resource_hash=_resource_key(resolved_mcp_url),
+        scope_source="configured" if configured_scope else "resource_metadata" if discovered_scope else "none",
+        scope_count=len(config["scope"].split()),
+    )
 
     if not config.get("client_id") and config.get("registration_endpoint"):
         registered = _register_client(
@@ -1224,6 +1295,10 @@ def resolve_server_oauth_config_cached(
 
     if storage and resolved_mcp_url:
         cache_payload: dict[str, Any] = {}
+        if discovered_scope is not None:
+            # Cache only metadata-derived scopes, never another provider's
+            # explicit scope selection. Empty means discovery found no scopes.
+            cache_payload["discovered_scope"] = discovered_scope
         for key in (
             "authorization_url",
             "token_url",
