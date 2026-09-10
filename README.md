@@ -1,6 +1,6 @@
 # MCP Auth Relay
 
-[日本語](readme/README_ja_JP.md)
+[Japanese](readme/README_ja_JP.md)
 
 MCP Auth Relay lets Dify use remote MCP servers through three tools and two endpoints. It stores OAuth tokens per user, receives the OAuth callback inside the plugin, and exposes MCP tools through a stable Dify wrapper.
 
