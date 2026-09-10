@@ -4,6 +4,7 @@ from typing import Any
 
 from dify_plugin import Tool
 from dify_plugin.entities.tool import ToolInvokeMessage
+from tools.utils.debug import debug_event, debug_server_config, identity_context
 
 from tools.utils.auth import (
     build_auth_headers,
@@ -75,9 +76,11 @@ def _parse_server_ids(tool_parameters: dict[str, Any]) -> tuple[list[str], str |
 
 class MCPToolList(Tool):
     def _invoke(self, tool_parameters: dict[str, Any]) -> Generator[ToolInvokeMessage]:
+        debug_event("tool_invoke", **identity_context(self))
         credentials = self.runtime.credentials or {}
         try:
             parsed_config = parse_mcp_servers_config(credentials)
+            debug_server_config(self, parsed_config)
         except ValueError as exc:
             yield self.create_text_message(str(exc))
             return
@@ -129,6 +132,7 @@ class MCPToolList(Tool):
                     max_age_seconds=cache_ttl_seconds,
                 )
             if cached_tools is not None:
+                debug_event("tool_list_cache_hit", **identity_context(self))
                 tools = cached_tools
                 source = "cache"
             else:
@@ -182,6 +186,7 @@ class MCPToolList(Tool):
                     if cache_ttl_seconds > 0:
                         set_tool_list_cache(storage, mcp_url, tools)
                 except McpAuthError:
+                    debug_event("reauth_required", had_access_token=bool(access_token), **identity_context(self))
                     resolved_server = dict(server)
                     try:
                         resolved_server = resolve_server_oauth_config_cached(
@@ -219,6 +224,7 @@ class MCPToolList(Tool):
                     )
                     continue
                 except Exception as exc:
+                    debug_event("tool_error", error_type=type(exc).__name__, **identity_context(self))
                     errors.append({"server_id": current_server_id, "error": str(exc)})
                     continue
 

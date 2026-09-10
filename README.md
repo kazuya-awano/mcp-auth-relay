@@ -70,6 +70,14 @@ Example:
 }
 ```
 
+When `scope` is omitted, the plugin looks for Protected Resource Metadata at the
+MCP endpoint's path, then at the origin root, and requests its `scopes_supported`.
+Set `scope` explicitly to limit permissions (for example, `"scope": "mcp:read"`);
+explicit settings take precedence over discovery. Existing OAuth client
+registrations are retained when upgrading cached metadata to include scopes.
+If an older version issued a token without the required scopes, call
+`mcp_auth_status` with `force_reauth=true` and sign in through the new `login_url`.
+
 Notes:
 
 - `description` should explain what each server is for. The model uses it to decide which server to inspect.
@@ -120,6 +128,17 @@ Example `mcp_tool_call` input:
   "input": "{\"query\":\"release notes\"}"
 }
 ```
+
+## Editor preview limitation
+
+In Dify's editor preview, tools inside an Agent may request authentication again
+immediately after sign-in (observed with Dify 1.13.0). Dify can pass different
+user IDs to the preceding authentication tool and the Agent's tools, so their
+per-user token storage keys do not match. Treat this as a preview limitation.
+
+Verify authentication through tool execution in a published app as the same user,
+or through the app API with a fixed `/chat-messages` `user` value. Tokens obtained
+in preview are not shared with published-app or other API users.
 
 ## Endpoints
 

@@ -75,7 +75,12 @@ https://<your-dify-host>/e/<hook-id>/callback
 - `description` は各サーバーの用途を表す説明です。モデルが対象サーバーを判断するために使います。
 - `redirect_uri` は Dify が発行した callback URL を指定してください。
 - `authorization_url` と `token_url` は、MCP サーバーが OAuth メタデータを公開していれば省略できます。
+- `scope` を省略すると、MCP URL のパスに対応する Protected Resource Metadata、次にルートのメタデータを探し、`scopes_supported` を認証要求に使用します。権限を限定する場合は `scope` を明示してください（例: `"scope": "mcp:read"`）。明示設定が自動取得より優先されます。
 - 上流が許可していれば public client / DCR にも対応できます。
+
+旧版でスコープなしのトークンを取得済みの場合は、修正版で `mcp_auth_status` に
+`force_reauth=true` を指定し、新しい `login_url` から一度認証し直してください。
+既存のOAuthクライアントを保持したまま、キャッシュに不足していたスコープを取得します。
 
 ### 手順 4: Agent にツールを追加
 
@@ -120,6 +125,17 @@ Agent または Workflow に次の3つを追加します。
   "input": "{\"query\":\"release notes\"}"
 }
 ```
+
+## 編集画面プレビューの制約
+
+Difyの編集画面プレビューでは、認証直後でもAgent内のツールで再認証を求められる
+場合があります（Dify 1.13.0で確認）。前段の認証確認ツールとAgent内のツールに
+Difyが異なるユーザーIDを渡すため、ユーザー単位で保存したトークンが一致しません。
+プレビューでの動作上の制約として扱ってください。
+
+認証からツール実行までの確認には、公開済みアプリで同じ利用者として操作するか、
+アプリAPIで `/chat-messages` の `user` を固定して実行してください。
+プレビューで認証したトークンは、公開アプリや別のAPIユーザーには引き継がれません。
 
 ## エンドポイント
 
