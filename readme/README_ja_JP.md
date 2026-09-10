@@ -1,5 +1,7 @@
 # MCP Auth Relay
 
+[English](../README.md)
+
 MCP Auth Relay は、Dify からリモート MCP サーバーを使うためのプラグインです。3つのツールと2つのエンドポイントを提供し、OAuth トークンをユーザー単位で保存しながら、MCP ツールを Dify から安定して呼び出せる形に変換します。
 
 **Author:** [kazuya-awano](https://github.com/kazuya-awano)  
@@ -141,6 +143,10 @@ Difyが異なるユーザーIDを渡すため、ユーザー単位で保存し�
 
 - `/callback`: 上流 IdP からの OAuth コールバックを受け取ります
 - `/logout`: 保存済みトークンとツール一覧キャッシュを削除します。`mcp_url` クエリを付けると対象を1サーバーに限定できます
+
+## プライバシー
+
+保存・ログ・削除の詳細は [PRIVACY.md](../PRIVACY.md) を参照してください。
 
 ## License
 
