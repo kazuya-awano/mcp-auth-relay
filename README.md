@@ -1,5 +1,7 @@
 # MCP Auth Relay
 
+[日本語](readme/README_ja_JP.md)
+
 MCP Auth Relay lets Dify use remote MCP servers through three tools and two endpoints. It stores OAuth tokens per user, receives the OAuth callback inside the plugin, and exposes MCP tools through a stable Dify wrapper.
 
 **Author:** [kazuya-awano](https://github.com/kazuya-awano)  
@@ -144,6 +146,10 @@ in preview are not shared with published-app or other API users.
 
 - `/callback`: OAuth callback endpoint used by upstream identity providers
 - `/logout`: deletes stored tokens and cached tool lists; optional query `mcp_url` limits deletion to one server
+
+## Privacy
+
+See [PRIVACY.md](PRIVACY.md) for storage, logging, and deletion details.
 
 ## License
 

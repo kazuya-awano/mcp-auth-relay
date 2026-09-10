@@ -46,6 +46,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 cover/
 
 # Translations
@@ -126,6 +127,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 .venv
 env/
 venv/
@@ -182,5 +184,9 @@ Thumbs.db
 #  To prevent packaging repetitively
 *.difypkg
 
-# Local investigation notes
-docs/auth-debug-investigation.md
+# Development-only files (keep README.md, readme/, PRIVACY.md, and LICENSE)
+.difyignore
+GUIDE.md
+docs/
+tests/
+scripts/
